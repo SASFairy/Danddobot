@@ -8,7 +8,7 @@
 ## 주요 기능
 
 1. **독립적인 도커 네트워크 통신:** 로컬 LLM과 디스코드 챗봇이 독립된 컨테이너로 가동되지만, 동일한 도커 네트워크(예: `danddobot-network`)를 공유하여 안전하고 다이렉트로 통신합니다.
-2. **느슨한 결합 (어댑터 패턴):** 챗봇 메인 로직은 LLM의 하위 규격에 종속되지 않습니다. `BaseLLMClient` 추상 클래스를 기반으로 Ollama 및 OpenAI 호환 API 규격 클라이언트가 제공되므로, 환경 변수 수정만으로 손쉽게 LLM 엔진을 전환할 수 있습니다.
+2. **느슨한 결합 (어댑터 패턴):** 챗봇 메인 로직은 LLM의 하위 규격에 종속되지 않습니다. `BaseLLMClient` 추상 클래스를 기반으로 Ollama, OpenAI 호환 API, llama.cpp, vLLM, LM Studio 등 다양한 로컬 LLM 규격을 지원하므로 환경 변수 수정만으로 손쉽게 LLM 엔진을 전환할 수 있습니다.
 3. **실시간 페르소나 리로드:** 페르소나 설정 파일(`config/persona.txt`)이 호스트 볼륨으로 마운트됩니다. 챗봇을 재실행할 필요 없이 텍스트 파일만 편집하면 실시간으로 AI 챗봇의 성격과 지시사항(System Prompt)이 적용됩니다.
 4. **2,000자 응답 분할 전송:** 디스코드 메시지의 2,000자 제한을 처리하기 위해 줄바꿈 단위를 보존하며 안전하게 청크 분할하여 전송합니다.
 
@@ -42,9 +42,10 @@ danddobot-antigravity/
 DISCORD_TOKEN=your_discord_bot_token
 DISCORD_CHANNEL_ID=your_target_channel_id
 
-# LLM 엔진 선택: OLLAMA 또는 OPENAI_COMPATIBLE
+# LLM 엔진 선택: OLLAMA, OPENAI_COMPATIBLE, LLAMA_CPP, VLLM, LM_STUDIO
 LLM_PROVIDER=OLLAMA
-# 동일 도커 네트워크 상의 LLM 컨테이너 주소
+# 동일 도커 네트워크 상의 LLM 컨테이너 주소 또는 로컬 호스트 주소
+# (예: vLLM -> http://localhost:8000, LM Studio -> http://localhost:1234, llama.cpp -> http://localhost:8080)
 LLM_API_URL=http://local-llm:11434
 LLM_MODEL=llama3
 

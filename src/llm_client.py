@@ -62,10 +62,10 @@ class OpenAICompatibleClient(BaseLLMClient):
     Client for OpenAI-compatible local APIs (vLLM, Llama.cpp, LocalAI, etc.)
     hitting the /v1/chat/completions endpoint.
     """
-    def __init__(self, api_url: str, model: str):
+    def __init__(self, api_url: str, model: str, provider_name: str = "OpenAICompatible"):
         self.api_url = api_url.rstrip('/')
         self.model = model
-        logger.info(f"OpenAICompatibleClient initialized with URL: {self.api_url}, model: {self.model}")
+        logger.info(f"{provider_name}Client initialized with URL: {self.api_url}, model: {self.model}")
 
     async def generate_response(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         endpoint = f"{self.api_url}/v1/chat/completions"
@@ -111,7 +111,13 @@ class LLMClientFactory:
         if prov == "OLLAMA":
             return OllamaClient(api_url, model)
         elif prov == "OPENAI_COMPATIBLE":
-            return OpenAICompatibleClient(api_url, model)
+            return OpenAICompatibleClient(api_url, model, "OpenAICompatible")
+        elif prov == "LLAMA_CPP":
+            return OpenAICompatibleClient(api_url, model, "LlamaCpp")
+        elif prov == "VLLM":
+            return OpenAICompatibleClient(api_url, model, "vLLM")
+        elif prov == "LM_STUDIO":
+            return OpenAICompatibleClient(api_url, model, "LMStudio")
         else:
             logger.warning(f"Unknown LLM provider: {provider}. Defaulting to OLLAMA client.")
             return OllamaClient(api_url, model)
