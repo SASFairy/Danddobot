@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  chatbot:
+    build: .
+    container_name: danddobot-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./config:/app/config
+    networks:
+      - danddobot-network
+
+networks:
+  danddobot-network:
+    external: true
