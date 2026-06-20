@@ -19,5 +19,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ ./src/
 COPY config/ ./config/
 
-# Execute
-CMD ["python", "src/main.py"]
+# Execute as a module to avoid ModuleNotFoundError
+CMD ["python", "-m", "src.main"]
+
+
