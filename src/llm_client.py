@@ -41,7 +41,7 @@ class OllamaClient(BaseLLMClient):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            async with httpx.AsyncClient(timeout=300.0) as client:
                 logger.debug(f"Sending request to Ollama endpoint: {endpoint}")
                 response = await client.post(endpoint, json=payload)
                 response.raise_for_status()
@@ -82,7 +82,7 @@ class OpenAICompatibleClient(BaseLLMClient):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            async with httpx.AsyncClient(timeout=300.0) as client:
                 logger.debug(f"Sending request to OpenAI-compatible endpoint: {endpoint}")
                 response = await client.post(endpoint, json=payload)
                 response.raise_for_status()
