@@ -90,10 +90,10 @@ class PersonaEditModal(ui.Modal, title="🤖 페르소나(시스템 프롬프트
             logger.info(f"Persona updated via Modal by user {interaction.user} (ID: {interaction.user.id})")
             
             # Update the dashboard message
-            embed = build_dashboard_embed(self.client, status_msg="페르소나 수정 완료")
+            embed = build_dashboard_embed(self.client, status_msg="페르소나 수정 및 재로드 완료")
             await interaction.message.edit(embed=embed)
             
-            await interaction.response.send_message("✅ 페르소나가 성공적으로 업데이트되었습니다!", ephemeral=True)
+            await interaction.response.send_message("✅ 페르소나가 성공적으로 수정 및 재로드되었습니다!", ephemeral=True)
         except Exception as e:
             logger.error(f"Failed to write persona file: {e}")
             await interaction.response.send_message(f"❌ 페르소나 저장 중 오류가 발생했습니다: `{e}`", ephemeral=True)
@@ -106,28 +106,6 @@ class AdminDashboardView(ui.View):
     def __init__(self, client: discord.Client):
         super().__init__(timeout=None)  # Make it persistent (does not timeout)
         self.client = client
-
-    @ui.button(label="🔄 페르소나 재로드", style=discord.ButtonStyle.primary, custom_id="danddobot_admin_reload")
-    async def reload_persona_btn(self, interaction: discord.Interaction, button: ui.Button):
-        logger.info(f"Reload persona requested by user {interaction.user} in {interaction.channel}")
-        
-        # In our codebase, the persona is loaded dynamically on each request.
-        # But this button helps verify the file can be read correctly and updates the dashboard.
-        persona_path = getattr(self.client, "persona_file_path", "config/persona.txt")
-        
-        if os.path.exists(persona_path):
-            try:
-                with open(persona_path, "r", encoding="utf-8") as f:
-                    f.read()  # dry run read
-                msg = "성공적으로 재로드되었습니다."
-                embed = build_dashboard_embed(self.client, status_msg="페르소나 재로드 성공")
-                await interaction.message.edit(embed=embed)
-                await interaction.response.send_message(f"✅ {msg}", ephemeral=True)
-            except Exception as e:
-                logger.error(f"Failed to read persona file during reload: {e}")
-                await interaction.response.send_message(f"❌ 페르소나 파일 읽기 실패: `{e}`", ephemeral=True)
-        else:
-            await interaction.response.send_message("⚠️ 페르소나 파일(`config/persona.txt`)이 존재하지 않습니다.", ephemeral=True)
 
     @ui.button(label="✏️ 페르소나 편집", style=discord.ButtonStyle.success, custom_id="danddobot_admin_edit")
     async def edit_persona_btn(self, interaction: discord.Interaction, button: ui.Button):
