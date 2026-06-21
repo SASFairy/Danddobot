@@ -109,9 +109,16 @@ class AdminChannelSelect(ui.Select):
         active_id: int = getattr(client, "active_channel_id", None)
 
         options = []
-        for channel_id, alias in list(registered.items())[:25]:
+        for channel_id in list(registered.keys())[:25]:
+            discord_channel = client.get_channel(channel_id)
+            if discord_channel and hasattr(discord_channel, "guild"):
+                label = f"{discord_channel.guild.name} - #{discord_channel.name}"
+            else:
+                # Fallback to alias from txt if Discord can't resolve the channel
+                label = registered.get(channel_id, f"채널 {channel_id}")
+
             options.append(discord.SelectOption(
-                label=alias[:100],
+                label=label[:100],
                 value=str(channel_id),
                 description=f"ID: {channel_id}",
                 default=(channel_id == active_id)
