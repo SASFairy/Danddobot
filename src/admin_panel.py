@@ -101,42 +101,31 @@ class PersonaEditModal(ui.Modal, title="🤖 페르소나(시스템 프롬프트
 
 class AdminChannelSelect(ui.Select):
     """
-    Custom Dropdown Menu listing text channels from all guilds the bot is joined to.
+    Dropdown menu listing only the pre-registered channels from config/channels.txt.
+    Allows the admin to switch the active chat channel between registered options.
     """
     def __init__(self, client: discord.Client):
+        registered: dict = getattr(client, "registered_channels", {})
+        active_id: int = getattr(client, "active_channel_id", None)
+
         options = []
-        
-        # 1. Collect all text channels where the bot has read/write permissions
-        raw_channels = []
-        for guild in client.guilds:
-            for channel in guild.text_channels:
-                perms = channel.permissions_for(guild.me)
-                if perms.send_messages and perms.read_messages:
-                    raw_channels.append((guild.name, channel.name, channel.id))
-        
-        # 2. Sort channels alphabetically by Server Name, then Channel Name
-        raw_channels.sort(key=lambda x: (x[0].lower(), x[1].lower()))
-        
-        # 3. Add up to 25 channels (Discord select menu maximum option limit)
-        current_active_id = getattr(client, "channel_id", None)
-        for guild_name, channel_name, channel_id in raw_channels[:25]:
-            label = f"{guild_name[:45]} - #{channel_name[:45]}"
+        for channel_id, alias in list(registered.items())[:25]:
             options.append(discord.SelectOption(
-                label=label,
+                label=alias[:100],
                 value=str(channel_id),
                 description=f"ID: {channel_id}",
-                default=(channel_id == current_active_id)
+                default=(channel_id == active_id)
             ))
-            
+
         if not options:
             options.append(discord.SelectOption(
-                label="사용 가능한 채널 없음",
+                label="등록된 채널 없음",
                 value="none",
-                description="봇이 접근할 수 있는 텍스트 채널이 없습니다."
+                description="config/channels.txt에 채널을 먼저 등록해 주세요."
             ))
 
         super().__init__(
-            placeholder="💬 활성 대화 채널 선택 (전체 서버)...",
+            placeholder="💬 활성 대화 채널 선택...",
             options=options,
             min_values=1,
             max_values=1,
@@ -145,33 +134,37 @@ class AdminChannelSelect(ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         if self.values[0] == "none":
-            await interaction.response.send_message("❌ 선택할 수 있는 채널이 없습니다.", ephemeral=True)
-            return
-            
-        client = interaction.client
-        selected_channel_id = int(self.values[0])
-        selected_channel = client.get_channel(selected_channel_id)
-        channel_name = selected_channel.name if selected_channel else f"ID {selected_channel_id}"
-        
-        try:
-            # Update the active channel on client
-            await client.update_active_channel(selected_channel_id)
-            
-            # Rebuild and edit the dashboard message with updated view
-            from src.admin_panel import build_dashboard_embed, AdminDashboardView
-            embed = build_dashboard_embed(client, status_msg=f"대화 채널 변경: {channel_name}")
-            new_view = AdminDashboardView(client)
-            await interaction.message.edit(embed=embed, view=new_view)
-            
-            mention = selected_channel.mention if selected_channel else f"#{channel_name}"
             await interaction.response.send_message(
-                f"✅ 활성 대화 채널이 {mention}(으)로 성공적으로 변경되었습니다!", 
+                "⚠️ 등록된 채널이 없습니다. `config/channels.txt` 파일에 채널 ID를 먼저 등록해 주세요.",
                 ephemeral=True
             )
+            return
+
+        client = interaction.client
+        selected_channel_id = int(self.values[0])
+        registered: dict = getattr(client, "registered_channels", {})
+        alias = registered.get(selected_channel_id, f"채널 {selected_channel_id}")
+
+        try:
+            await client.update_active_channel(selected_channel_id)
+
+            # Rebuild dashboard with updated view so dropdown default is refreshed
+            from src.admin_panel import build_dashboard_embed, AdminDashboardView
+            embed = build_dashboard_embed(client, status_msg=f"대화 채널 변경: {alias}")
+            new_view = AdminDashboardView(client)
+            await interaction.message.edit(embed=embed, view=new_view)
+
+            discord_channel = client.get_channel(selected_channel_id)
+            mention = discord_channel.mention if discord_channel else f"#{alias}"
+            await interaction.response.send_message(
+                f"✅ 활성 대화 채널이 **{alias}** ({mention})(으)로 변경되었습니다!",
+                ephemeral=True
+            )
+            logger.info(f"Active channel switched to {selected_channel_id} ('{alias}') by {interaction.user}")
         except Exception as e:
             logger.error(f"Failed to change active channel: {e}")
             await interaction.response.send_message(
-                f"❌ 대화 채널 변경 중 오류가 발생했습니다: `{e}`", 
+                f"❌ 대화 채널 변경 중 오류가 발생했습니다: `{e}`",
                 ephemeral=True
             )
 

@@ -38,6 +38,7 @@ docker-compose.override.yml
 # Local Persona custom edit
 # (Keep persona.txt version-controlled via git or ignore config/persona.txt if desired)
 config/persona.txt
+config/channels.txt
 config/state.json
 
 # Local personal documentation

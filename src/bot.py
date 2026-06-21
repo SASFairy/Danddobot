@@ -1,17 +1,48 @@
+import json
 import logging
 import os
 import discord
-from typing import List, Optional
+from typing import Dict, List, Optional
 from src.llm_client import BaseLLMClient
 
 logger = logging.getLogger("danddobot.bot")
 
+def load_registered_channels(channels_file_path: str) -> Dict[int, str]:
+    """
+    Parses the channels config file and returns a dict of {channel_id: alias}.
+    Format: one channel ID per line, with optional # alias comment.
+    Example: 1234567890 # 개발 서버 - 일반
+    """
+    channels: Dict[int, str] = {}
+    if not channels_file_path or not os.path.exists(channels_file_path):
+        logger.warning(f"Channels file not found at: {channels_file_path}. No channels registered.")
+        return channels
+    try:
+        with open(channels_file_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                # Split on '#' to separate ID and optional alias
+                parts = line.split("#", 1)
+                try:
+                    channel_id = int(parts[0].strip())
+                    alias = parts[1].strip() if len(parts) > 1 else f"채널 {channel_id}"
+                    channels[channel_id] = alias
+                except ValueError:
+                    logger.warning(f"Invalid channel ID in channels file: '{parts[0].strip()}'. Skipping.")
+        logger.info(f"Loaded {len(channels)} registered channel(s) from {channels_file_path}")
+    except Exception as e:
+        logger.error(f"Failed to read channels file at {channels_file_path}: {e}")
+    return channels
+
+
 class DanddobotClient(discord.Client):
     """
-    Discord Client for Danddobot. Handles receiving messages in a target channel,
+    Discord Client for Danddobot. Handles receiving messages in a registered active channel,
     calling the local LLM with a live persona system prompt, and returning responses.
     """
-    def __init__(self, channel_id: int, llm_client: BaseLLMClient, persona_file_path: str, 
+    def __init__(self, channels_file_path: str, llm_client: BaseLLMClient, persona_file_path: str,
                  admin_channel_id: Optional[int] = None, *args, **kwargs):
         # We require message_content intents to read user messages
         intents = discord.Intents.default()
@@ -19,42 +50,66 @@ class DanddobotClient(discord.Client):
         kwargs["intents"] = intents
         
         super().__init__(*args, **kwargs)
-        
-        # Load persistent state if exists
-        state_path = "config/state.json"
-        if os.path.exists(state_path):
-            try:
-                import json
-                with open(state_path, "r", encoding="utf-8") as f:
-                    state = json.load(f)
-                    saved_channel_id = state.get("channel_id")
-                    if saved_channel_id:
-                        channel_id = saved_channel_id
-                        logger.info(f"Loaded persistent channel_id from state.json: {channel_id}")
-            except Exception as e:
-                logger.error(f"Failed to read state file: {e}")
 
-        self.channel_id = channel_id
+        self.channels_file_path = channels_file_path
         self.llm_client = llm_client
         self.persona_file_path = persona_file_path
         self.admin_channel_id = admin_channel_id
-        
+
+        # Load the registered channels list from config file
+        self.registered_channels: Dict[int, str] = load_registered_channels(channels_file_path)
+
+        # Load persisted active channel from state.json, defaulting to first registered channel
+        self.active_channel_id: Optional[int] = None
+        state_path = "config/state.json"
+        if os.path.exists(state_path):
+            try:
+                with open(state_path, "r", encoding="utf-8") as f:
+                    state = json.load(f)
+                    saved_id = state.get("channel_id")
+                    if saved_id and int(saved_id) in self.registered_channels:
+                        self.active_channel_id = int(saved_id)
+                        logger.info(f"Loaded persisted active_channel_id from state.json: {self.active_channel_id}")
+            except Exception as e:
+                logger.error(f"Failed to read state file: {e}")
+
+        if self.active_channel_id is None and self.registered_channels:
+            self.active_channel_id = next(iter(self.registered_channels))
+            logger.info(f"No persisted state found. Defaulting active channel to first registered: {self.active_channel_id}")
+        elif self.active_channel_id is None:
+            logger.warning("No registered channels found. Bot will not respond to any channel messages.")
+
+        # Keep a legacy alias for convenience in embed/should_respond
+        self.channel_id = self.active_channel_id
+
         # Initialize CommandTree for application commands (slash commands) cleanup
         self.tree = discord.app_commands.CommandTree(self)
-        
-        logger.info(f"DanddobotClient initialized for channel_id: {self.channel_id}, admin_channel_id: {self.admin_channel_id}")
+
+        logger.info(
+            f"DanddobotClient initialized. Active channel: {self.active_channel_id}, "
+            f"Registered channels: {list(self.registered_channels.keys())}, "
+            f"Admin channel: {self.admin_channel_id}"
+        )
 
     async def update_active_channel(self, new_channel_id: int):
-        self.channel_id = new_channel_id
+        """Update the active chat channel and persist the change to state.json."""
+        self.active_channel_id = new_channel_id
+        self.channel_id = new_channel_id  # Keep alias in sync
         state_path = "config/state.json"
         try:
-            import json
             os.makedirs(os.path.dirname(state_path), exist_ok=True)
             with open(state_path, "w", encoding="utf-8") as f:
                 json.dump({"channel_id": new_channel_id}, f)
-            logger.info(f"Persistent state updated: channel_id = {new_channel_id}")
+            logger.info(f"Persisted active_channel_id: {new_channel_id}")
         except Exception as e:
             logger.error(f"Failed to write state file: {e}")
+
+    def reload_channels(self):
+        """Reload the registered channels list from the config file."""
+        self.registered_channels = load_registered_channels(self.channels_file_path)
+        logger.info(f"Channels reloaded: {self.registered_channels}")
+
+
 
     async def on_ready(self):
         logger.info(f"Bot logged in as {self.user} (ID: {self.user.id})")
@@ -126,8 +181,8 @@ class DanddobotClient(discord.Client):
         if self.admin_channel_id and message.channel.id == self.admin_channel_id:
             return False
 
-        # 3. Respond to all messages in the specified channel
-        if message.channel.id != self.channel_id:
+        # 3. Only respond in the currently active chat channel
+        if not self.active_channel_id or message.channel.id != self.active_channel_id:
             return False
 
         # (Future extensions can be added here, e.g.)

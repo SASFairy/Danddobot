@@ -23,22 +23,9 @@ def main():
 
     # 3. Read and validate environment variables
     discord_token = os.getenv("DISCORD_TOKEN")
-    discord_channel_id_raw = os.getenv("DISCORD_CHANNEL_ID")
-    
+
     if not discord_token:
         logger.critical("DISCORD_TOKEN environment variable is missing! Program exiting.")
-        sys.exit(1)
-        
-    if not discord_channel_id_raw:
-        logger.critical("DISCORD_CHANNEL_ID environment variable is missing! Program exiting.")
-        sys.exit(1)
-
-    try:
-        discord_channel_id = int(discord_channel_id_raw)
-    except ValueError:
-        logger.critical(
-            f"DISCORD_CHANNEL_ID must be a valid integer. Received: '{discord_channel_id_raw}'. Program exiting."
-        )
         sys.exit(1)
 
     # Read LLM Configuration
@@ -46,6 +33,7 @@ def main():
     llm_api_url = os.getenv("LLM_API_URL", "http://localhost:11434")
     llm_model = os.getenv("LLM_MODEL", "llama3")
     persona_file_path = os.getenv("PERSONA_FILE_PATH", "config/persona.txt")
+    channels_file_path = os.getenv("CHANNELS_FILE_PATH", "config/channels.txt")
     
     # Read Admin Channel Configuration
     admin_channel_id_raw = os.getenv("ADMIN_CHANNEL_ID")
@@ -59,9 +47,9 @@ def main():
                 f"ADMIN_CHANNEL_ID must be a valid integer or blank. Received: '{admin_channel_id_raw}'. Admin dashboard will be disabled."
             )
 
-    logger.info(f"Target Discord Channel ID: {discord_channel_id}")
     logger.info(f"LLM Configuration: Provider={llm_provider}, API_Url={llm_api_url}, Model={llm_model}")
     logger.info(f"Persona Prompt Path: {persona_file_path}")
+    logger.info(f"Channels Config Path: {channels_file_path}")
 
     # 4. Initialize LLM Adapter Client
     llm_client = LLMClientFactory.get_client(
@@ -72,7 +60,7 @@ def main():
 
     # 5. Initialize Discord Client
     bot = DanddobotClient(
-        channel_id=discord_channel_id,
+        channels_file_path=channels_file_path,
         llm_client=llm_client,
         persona_file_path=persona_file_path,
         admin_channel_id=admin_channel_id
