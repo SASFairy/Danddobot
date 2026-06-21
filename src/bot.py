@@ -1,7 +1,7 @@
 import logging
 import os
 import discord
-from typing import List
+from typing import List, Optional
 from src.llm_client import BaseLLMClient
 
 logger = logging.getLogger("danddobot.bot")
@@ -11,7 +11,8 @@ class DanddobotClient(discord.Client):
     Discord Client for Danddobot. Handles receiving messages in a target channel,
     calling the local LLM with a live persona system prompt, and returning responses.
     """
-    def __init__(self, channel_id: int, llm_client: BaseLLMClient, persona_file_path: str, *args, **kwargs):
+    def __init__(self, channel_id: int, llm_client: BaseLLMClient, persona_file_path: str, 
+                 admin_channel_id: Optional[int] = None, *args, **kwargs):
         # We require message_content intents to read user messages
         intents = discord.Intents.default()
         intents.message_content = True
@@ -21,11 +22,67 @@ class DanddobotClient(discord.Client):
         self.channel_id = channel_id
         self.llm_client = llm_client
         self.persona_file_path = persona_file_path
+        self.admin_channel_id = admin_channel_id
         
-        logger.info(f"DanddobotClient initialized for channel_id: {self.channel_id}")
+        # Initialize CommandTree for application commands (slash commands) cleanup
+        self.tree = discord.app_commands.CommandTree(self)
+        
+        logger.info(f"DanddobotClient initialized for channel_id: {self.channel_id}, admin_channel_id: {self.admin_channel_id}")
 
     async def on_ready(self):
         logger.info(f"Bot logged in as {self.user} (ID: {self.user.id})")
+        
+        # 1. Clean up existing slash commands (delete from all guilds and globally)
+        logger.info("Cleaning up registered slash commands...")
+        try:
+            self.tree.clear_commands(guild=None)
+            await self.tree.sync(guild=None)
+            logger.info("Cleared and synced global slash commands.")
+            
+            for guild in self.guilds:
+                try:
+                    self.tree.clear_commands(guild=guild)
+                    await self.tree.sync(guild=guild)
+                    logger.info(f"Cleared and synced slash commands for guild: {guild.name} (ID: {guild.id})")
+                except Exception as guild_err:
+                    logger.error(f"Failed to clear commands for guild {guild.name}: {guild_err}")
+            logger.info("Slash command cleanup completed successfully.")
+        except Exception as e:
+            logger.error(f"Failed to complete slash command cleanup: {e}")
+
+        # 2. Setup Persistent View and Send/Update Admin Dashboard
+        from src.admin_panel import AdminDashboardView, build_dashboard_embed
+        
+        # Register persistent view for button interaction handling
+        self.add_view(AdminDashboardView(self))
+        
+        if self.admin_channel_id:
+            admin_channel = self.get_channel(self.admin_channel_id)
+            if admin_channel:
+                logger.info(f"Initializing admin dashboard in channel {admin_channel.name} (ID: {self.admin_channel_id})")
+                
+                # Delete past bot messages to clean up the channel history
+                try:
+                    async for msg in admin_channel.history(limit=50):
+                        if msg.author == self.user:
+                            await msg.delete()
+                    logger.info("Successfully cleaned up history in admin channel.")
+                except Exception as history_err:
+                    logger.warning(f"Could not fully clean history in admin channel: {history_err}")
+                
+                # Post the fresh dashboard embed
+                try:
+                    embed = build_dashboard_embed(self)
+                    view = AdminDashboardView(self)
+                    await admin_channel.send(embed=embed, view=view)
+                    logger.info("Admin dashboard posted successfully.")
+                except Exception as send_err:
+                    logger.error(f"Failed to send admin dashboard: {send_err}")
+            else:
+                logger.warning(f"Could not find admin channel with ID: {self.admin_channel_id}. Is the bot member of that server?")
+        else:
+            logger.info("Admin channel ID not configured. Dashboard is disabled.")
+
         logger.info("Bot is active and listening for messages.")
 
     def should_respond(self, message: discord.Message) -> bool:
@@ -38,7 +95,11 @@ class DanddobotClient(discord.Client):
         if message.author == self.user:
             return False
 
-        # 2. Respond to all messages in the specified channel
+        # 2. Ignore messages in the admin channel (it is only for dashboard controls)
+        if self.admin_channel_id and message.channel.id == self.admin_channel_id:
+            return False
+
+        # 3. Respond to all messages in the specified channel
         if message.channel.id != self.channel_id:
             return False
 

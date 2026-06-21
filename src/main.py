@@ -46,6 +46,18 @@ def main():
     llm_api_url = os.getenv("LLM_API_URL", "http://localhost:11434")
     llm_model = os.getenv("LLM_MODEL", "llama3")
     persona_file_path = os.getenv("PERSONA_FILE_PATH", "config/persona.txt")
+    
+    # Read Admin Channel Configuration
+    admin_channel_id_raw = os.getenv("ADMIN_CHANNEL_ID")
+    admin_channel_id = None
+    if admin_channel_id_raw and admin_channel_id_raw.strip():
+        try:
+            admin_channel_id = int(admin_channel_id_raw)
+            logger.info(f"Target Admin Channel ID: {admin_channel_id}")
+        except ValueError:
+            logger.warning(
+                f"ADMIN_CHANNEL_ID must be a valid integer or blank. Received: '{admin_channel_id_raw}'. Admin dashboard will be disabled."
+            )
 
     logger.info(f"Target Discord Channel ID: {discord_channel_id}")
     logger.info(f"LLM Configuration: Provider={llm_provider}, API_Url={llm_api_url}, Model={llm_model}")
@@ -62,7 +74,8 @@ def main():
     bot = DanddobotClient(
         channel_id=discord_channel_id,
         llm_client=llm_client,
-        persona_file_path=persona_file_path
+        persona_file_path=persona_file_path,
+        admin_channel_id=admin_channel_id
     )
 
     # 6. Run the Bot
