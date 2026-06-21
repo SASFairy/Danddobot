@@ -99,33 +99,73 @@ class PersonaEditModal(ui.Modal, title="🤖 페르소나(시스템 프롬프트
             await interaction.response.send_message(f"❌ 페르소나 저장 중 오류가 발생했습니다: `{e}`", ephemeral=True)
 
 
-class AdminChannelSelect(ui.ChannelSelect):
+class AdminChannelSelect(ui.Select):
     """
-    Discord Channel Select Component to dynamically choose the active chat channel.
+    Custom Dropdown Menu listing text channels from all guilds the bot is joined to.
     """
-    def __init__(self):
+    def __init__(self, client: discord.Client):
+        options = []
+        
+        # 1. Collect all text channels where the bot has read/write permissions
+        raw_channels = []
+        for guild in client.guilds:
+            for channel in guild.text_channels:
+                perms = channel.permissions_for(guild.me)
+                if perms.send_messages and perms.read_messages:
+                    raw_channels.append((guild.name, channel.name, channel.id))
+        
+        # 2. Sort channels alphabetically by Server Name, then Channel Name
+        raw_channels.sort(key=lambda x: (x[0].lower(), x[1].lower()))
+        
+        # 3. Add up to 25 channels (Discord select menu maximum option limit)
+        current_active_id = getattr(client, "channel_id", None)
+        for guild_name, channel_name, channel_id in raw_channels[:25]:
+            label = f"{guild_name[:45]} - #{channel_name[:45]}"
+            options.append(discord.SelectOption(
+                label=label,
+                value=str(channel_id),
+                description=f"ID: {channel_id}",
+                default=(channel_id == current_active_id)
+            ))
+            
+        if not options:
+            options.append(discord.SelectOption(
+                label="사용 가능한 채널 없음",
+                value="none",
+                description="봇이 접근할 수 있는 텍스트 채널이 없습니다."
+            ))
+
         super().__init__(
-            placeholder="💬 활성 대화 채널 선택...",
-            channel_types=[discord.ChannelType.text],
+            placeholder="💬 활성 대화 채널 선택 (전체 서버)...",
+            options=options,
             min_values=1,
             max_values=1,
             custom_id="danddobot_admin_channel_select"
         )
 
     async def callback(self, interaction: discord.Interaction):
+        if self.values[0] == "none":
+            await interaction.response.send_message("❌ 선택할 수 있는 채널이 없습니다.", ephemeral=True)
+            return
+            
         client = interaction.client
-        selected_channel = self.values[0]
+        selected_channel_id = int(self.values[0])
+        selected_channel = client.get_channel(selected_channel_id)
+        channel_name = selected_channel.name if selected_channel else f"ID {selected_channel_id}"
         
         try:
             # Update the active channel on client
-            await client.update_active_channel(selected_channel.id)
+            await client.update_active_channel(selected_channel_id)
             
-            # Rebuild and edit the dashboard message
-            embed = build_dashboard_embed(client, status_msg=f"대화 채널 변경: {selected_channel.name}")
-            await interaction.message.edit(embed=embed)
+            # Rebuild and edit the dashboard message with updated view
+            from src.admin_panel import build_dashboard_embed, AdminDashboardView
+            embed = build_dashboard_embed(client, status_msg=f"대화 채널 변경: {channel_name}")
+            new_view = AdminDashboardView(client)
+            await interaction.message.edit(embed=embed, view=new_view)
             
+            mention = selected_channel.mention if selected_channel else f"#{channel_name}"
             await interaction.response.send_message(
-                f"✅ 활성 대화 채널이 {selected_channel.mention}(으)로 성공적으로 변경되었습니다!", 
+                f"✅ 활성 대화 채널이 {mention}(으)로 성공적으로 변경되었습니다!", 
                 ephemeral=True
             )
         except Exception as e:
@@ -144,7 +184,7 @@ class AdminDashboardView(ui.View):
         super().__init__(timeout=None)  # Make it persistent (does not timeout)
         self.client = client
         # Add the channel select dropdown menu to the view
-        self.add_item(AdminChannelSelect())
+        self.add_item(AdminChannelSelect(client))
 
     @ui.button(label="✏️ 페르소나 편집", style=discord.ButtonStyle.success, custom_id="danddobot_admin_edit")
     async def edit_persona_btn(self, interaction: discord.Interaction, button: ui.Button):
