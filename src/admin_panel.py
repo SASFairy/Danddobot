@@ -99,6 +99,43 @@ class PersonaEditModal(ui.Modal, title="🤖 페르소나(시스템 프롬프트
             await interaction.response.send_message(f"❌ 페르소나 저장 중 오류가 발생했습니다: `{e}`", ephemeral=True)
 
 
+class AdminChannelSelect(ui.ChannelSelect):
+    """
+    Discord Channel Select Component to dynamically choose the active chat channel.
+    """
+    def __init__(self):
+        super().__init__(
+            placeholder="💬 활성 대화 채널 선택...",
+            channel_types=[discord.ChannelType.text],
+            min_values=1,
+            max_values=1,
+            custom_id="danddobot_admin_channel_select"
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        client = interaction.client
+        selected_channel = self.values[0]
+        
+        try:
+            # Update the active channel on client
+            await client.update_active_channel(selected_channel.id)
+            
+            # Rebuild and edit the dashboard message
+            embed = build_dashboard_embed(client, status_msg=f"대화 채널 변경: {selected_channel.name}")
+            await interaction.message.edit(embed=embed)
+            
+            await interaction.response.send_message(
+                f"✅ 활성 대화 채널이 {selected_channel.mention}(으)로 성공적으로 변경되었습니다!", 
+                ephemeral=True
+            )
+        except Exception as e:
+            logger.error(f"Failed to change active channel: {e}")
+            await interaction.response.send_message(
+                f"❌ 대화 채널 변경 중 오류가 발생했습니다: `{e}`", 
+                ephemeral=True
+            )
+
+
 class AdminDashboardView(ui.View):
     """
     Interactive button view attached to the admin dashboard embed.
@@ -106,6 +143,8 @@ class AdminDashboardView(ui.View):
     def __init__(self, client: discord.Client):
         super().__init__(timeout=None)  # Make it persistent (does not timeout)
         self.client = client
+        # Add the channel select dropdown menu to the view
+        self.add_item(AdminChannelSelect())
 
     @ui.button(label="✏️ 페르소나 편집", style=discord.ButtonStyle.success, custom_id="danddobot_admin_edit")
     async def edit_persona_btn(self, interaction: discord.Interaction, button: ui.Button):

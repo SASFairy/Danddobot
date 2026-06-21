@@ -19,6 +19,21 @@ class DanddobotClient(discord.Client):
         kwargs["intents"] = intents
         
         super().__init__(*args, **kwargs)
+        
+        # Load persistent state if exists
+        state_path = "config/state.json"
+        if os.path.exists(state_path):
+            try:
+                import json
+                with open(state_path, "r", encoding="utf-8") as f:
+                    state = json.load(f)
+                    saved_channel_id = state.get("channel_id")
+                    if saved_channel_id:
+                        channel_id = saved_channel_id
+                        logger.info(f"Loaded persistent channel_id from state.json: {channel_id}")
+            except Exception as e:
+                logger.error(f"Failed to read state file: {e}")
+
         self.channel_id = channel_id
         self.llm_client = llm_client
         self.persona_file_path = persona_file_path
@@ -28,6 +43,18 @@ class DanddobotClient(discord.Client):
         self.tree = discord.app_commands.CommandTree(self)
         
         logger.info(f"DanddobotClient initialized for channel_id: {self.channel_id}, admin_channel_id: {self.admin_channel_id}")
+
+    async def update_active_channel(self, new_channel_id: int):
+        self.channel_id = new_channel_id
+        state_path = "config/state.json"
+        try:
+            import json
+            os.makedirs(os.path.dirname(state_path), exist_ok=True)
+            with open(state_path, "w", encoding="utf-8") as f:
+                json.dump({"channel_id": new_channel_id}, f)
+            logger.info(f"Persistent state updated: channel_id = {new_channel_id}")
+        except Exception as e:
+            logger.error(f"Failed to write state file: {e}")
 
     async def on_ready(self):
         logger.info(f"Bot logged in as {self.user} (ID: {self.user.id})")
