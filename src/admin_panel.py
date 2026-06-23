@@ -1,4 +1,5 @@
 import os
+import json
 import time
 import logging
 import httpx
@@ -101,6 +102,66 @@ class PersonaEditModal(ui.Modal, title="🤖 페르소나(시스템 프롬프트
             await interaction.response.send_message(f"❌ 페르소나 저장 중 오류가 발생했습니다: `{e}`", ephemeral=True)
 
 
+class LlmTimeoutEditModal(ui.Modal, title="⏱️ LLM 타임아웃 시간 설정"):
+    """
+    Discord Modal to edit the LLM generation timeout value.
+    """
+    def __init__(self, client: discord.Client):
+        super().__init__()
+        self.client = client
+        
+        current_timeout = getattr(getattr(client, "llm_client", None), "timeout", 300.0)
+        default_val = "0" if current_timeout is None else str(current_timeout)
+        
+        self.timeout_input = ui.TextInput(
+            label="타임아웃 시간 설정 (초 단위, 무제한은 0 이하 입력)",
+            placeholder="예: 300.0 (기본값)",
+            default=default_val,
+            required=True,
+            max_length=10
+        )
+        self.add_item(self.timeout_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        client = self.client
+        val_str = self.timeout_input.value.strip()
+        
+        try:
+            new_val = float(val_str)
+            if new_val <= 0:
+                new_timeout = None
+            else:
+                new_timeout = new_val
+        except ValueError:
+            await interaction.response.send_message("❌ 올바른 숫자를 입력해 주세요.", ephemeral=True)
+            return
+
+        if hasattr(client, "llm_client") and client.llm_client:
+            client.llm_client.timeout = new_timeout
+
+        # Persist to config/state.json
+        state_path = "config/state.json"
+        try:
+            os.makedirs(os.path.dirname(state_path), exist_ok=True)
+            state = {}
+            if os.path.exists(state_path):
+                with open(state_path, "r", encoding="utf-8") as f:
+                    state = json.load(f)
+            state["llm_timeout"] = new_timeout
+            with open(state_path, "w", encoding="utf-8") as f:
+                json.dump(state, f)
+            logger.info(f"Persisted llm_timeout: {new_timeout} via admin dashboard")
+        except Exception as e:
+            logger.error(f"Failed to write state file for timeout: {e}")
+
+        # Update the dashboard message
+        timeout_str = "무제한" if new_timeout is None else f"{new_timeout}초"
+        embed = build_dashboard_embed(client, status_msg=f"타임아웃 변경 완료: {timeout_str}")
+        await interaction.message.edit(embed=embed)
+        
+        await interaction.response.send_message(f"✅ LLM 타임아웃이 **{timeout_str}**(으)로 설정되었습니다!", ephemeral=True)
+
+
 class AdminChannelSelect(ui.Select):
     """
     Dropdown menu listing only the pre-registered channels from config/channels.txt.
@@ -192,6 +253,12 @@ class AdminDashboardView(ui.View):
     async def edit_persona_btn(self, interaction: discord.Interaction, button: ui.Button):
         logger.info(f"Edit persona modal requested by user {interaction.user} in {interaction.channel}")
         modal = PersonaEditModal(self.client)
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="⏱️ 타임아웃 설정", style=discord.ButtonStyle.primary, custom_id="danddobot_admin_timeout")
+    async def edit_timeout_btn(self, interaction: discord.Interaction, button: ui.Button):
+        logger.info(f"Edit timeout modal requested by user {interaction.user} in {interaction.channel}")
+        modal = LlmTimeoutEditModal(self.client)
         await interaction.response.send_modal(modal)
 
     @ui.button(label="🩺 시스템 진단", style=discord.ButtonStyle.secondary, custom_id="danddobot_admin_diagnose")

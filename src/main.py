@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import logging
 from dotenv import load_dotenv
 from src.llm_client import LLMClientFactory
@@ -50,6 +51,18 @@ def main():
             logger.warning(
                 f"LLM_TIMEOUT must be a valid number or blank. Received: '{llm_timeout_raw}'. Defaulting to 300.0 seconds."
             )
+
+    # Override with persisted LLM timeout from state.json if present
+    state_path = "config/state.json"
+    if os.path.exists(state_path):
+        try:
+            with open(state_path, "r", encoding="utf-8") as f:
+                state = json.load(f)
+                if "llm_timeout" in state:
+                    llm_timeout = state["llm_timeout"]
+                    logger.info(f"Loaded persisted llm_timeout from state.json: {llm_timeout} seconds")
+        except Exception as e:
+            logger.error(f"Failed to read state file for timeout override: {e}")
 
     # Read Admin Channel Configuration
     admin_channel_id_raw = os.getenv("ADMIN_CHANNEL_ID")
