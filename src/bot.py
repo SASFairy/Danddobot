@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import asyncio
 import discord
 from typing import Dict, List, Optional
 from src.llm_client import BaseLLMClient
@@ -60,7 +61,12 @@ class DanddobotClient(discord.Client):
         # Load the registered channels list from config file
         self.registered_channels: Dict[int, str] = load_registered_channels(channels_file_path)
 
-        # Load persisted active channel from state.json, defaulting to first registered channel
+        # Initialize memory configurations and FIFO concurrency lock
+        self.use_memory: bool = False
+        self.channel_history: Dict[int, List[dict]] = {}
+        self.lock = asyncio.Lock()
+
+        # Load persisted active channel and memory state from state.json
         self.active_channel_id: Optional[int] = None
         state_path = "config/state.json"
         if os.path.exists(state_path):
@@ -71,6 +77,8 @@ class DanddobotClient(discord.Client):
                     if saved_id and int(saved_id) in self.registered_channels:
                         self.active_channel_id = int(saved_id)
                         logger.info(f"Loaded persisted active_channel_id from state.json: {self.active_channel_id}")
+                    self.use_memory = state.get("use_memory", False)
+                    logger.info(f"Loaded persisted use_memory from state.json: {self.use_memory}")
             except Exception as e:
                 logger.error(f"Failed to read state file: {e}")
 
@@ -90,21 +98,49 @@ class DanddobotClient(discord.Client):
             f"DanddobotClient initialized. Active channel: {self.active_channel_id}, "
             f"Registered channels: {list(self.registered_channels.keys())}, "
             f"Admin channel: {self.admin_channel_id}, "
-            f"Log channel: {self.log_channel_id}"
+            f"Log channel: {self.log_channel_id}, "
+            f"Memory Enabled: {self.use_memory}"
         )
 
     async def update_active_channel(self, new_channel_id: int):
-        """Update the active chat channel and persist the change to state.json."""
+        """Update the active chat channel and persist the change to state.json, preserving other fields."""
         self.active_channel_id = new_channel_id
         self.channel_id = new_channel_id  # Keep alias in sync
         state_path = "config/state.json"
         try:
             os.makedirs(os.path.dirname(state_path), exist_ok=True)
+            state = {}
+            if os.path.exists(state_path):
+                with open(state_path, "r", encoding="utf-8") as f:
+                    state = json.load(f)
+            state["channel_id"] = new_channel_id
             with open(state_path, "w", encoding="utf-8") as f:
-                json.dump({"channel_id": new_channel_id}, f)
+                json.dump(state, f, indent=4)
             logger.info(f"Persisted active_channel_id: {new_channel_id}")
         except Exception as e:
             logger.error(f"Failed to write state file: {e}")
+
+    async def toggle_memory(self) -> bool:
+        """Toggles conversational memory and persists the state."""
+        self.use_memory = not self.use_memory
+        state_path = "config/state.json"
+        try:
+            os.makedirs(os.path.dirname(state_path), exist_ok=True)
+            state = {}
+            if os.path.exists(state_path):
+                with open(state_path, "r", encoding="utf-8") as f:
+                    state = json.load(f)
+            state["use_memory"] = self.use_memory
+            with open(state_path, "w", encoding="utf-8") as f:
+                json.dump(state, f, indent=4)
+            logger.info(f"Persisted use_memory: {self.use_memory}")
+            
+            # Clear history when toggled off
+            if not self.use_memory:
+                self.channel_history.clear()
+        except Exception as e:
+            logger.error(f"Failed to write state file: {e}")
+        return self.use_memory
 
     def reload_channels(self):
         """Reload the registered channels list from the config file."""
@@ -219,64 +255,93 @@ class DanddobotClient(discord.Client):
         if not self.should_respond(message):
             return
 
-        user_content = message.content
-        logger.info(f"Received message from {message.author} in target channel: '{user_content[:50]}...'")
+        # Acquire sequential processing lock (Option A)
+        async with self.lock:
+            user_content = message.content
+            logger.info(f"Received message from {message.author} in target channel: '{user_content[:50]}...'")
 
-        # Load system prompt dynamically (allows host-side modifications)
-        system_prompt = self.load_persona()
+            # Load system prompt dynamically (allows host-side modifications)
+            system_prompt = self.load_persona()
 
-        # Display typing status to the user while LLM generates the response
-        llm_error = None
-        response = None
-        async with message.channel.typing():
-            try:
-                # Call the local LLM via the adapted client
-                response = await self.llm_client.generate_response(user_content, system_prompt)
-            except Exception as e:
-                logger.error(f"Failed to generate LLM response: {e}")
-                llm_error = e
+            # Load history context if memory is enabled
+            history = None
+            if self.use_memory:
+                history = self.channel_history.get(message.channel.id, [])
 
-        if llm_error is not None:
-            log_channel = None
-            if self.log_channel_id:
-                log_channel = self.get_channel(self.log_channel_id)
-                if not log_channel:
-                    try:
-                        log_channel = await self.fetch_channel(self.log_channel_id)
-                    except Exception as fetch_err:
-                        logger.error(f"Failed to fetch log channel {self.log_channel_id}: {fetch_err}")
-
-            if log_channel:
-                error_msg = (
-                    f"❌ **챗봇 시스템 오류 발생**\n"
-                    f"• **채널**: {message.channel.mention} (ID: {message.channel.id})\n"
-                    f"• **사용자**: {message.author.mention} (ID: {message.author.id})\n"
-                    f"• **메시지 내용**: {user_content[:100]}\n"
-                    f"• **오류 내용**: `{llm_error}`"
-                )
+            # Display typing status to the user while LLM generates the response
+            llm_error = None
+            response = None
+            async with message.channel.typing():
                 try:
-                    await log_channel.send(error_msg)
-                except Exception as send_err:
-                    logger.error(f"Failed to send error message to log channel: {send_err}")
-                    # Fallback: if sending to log channel failed, send to active channel
+                    # Call the local LLM via the adapted client (passing history context)
+                    response = await self.llm_client.generate_response(user_content, system_prompt, history=history)
+                except Exception as e:
+                    logger.error(f"Failed to generate LLM response: {e}")
+                    llm_error = e
+
+            if llm_error is not None:
+                log_channel = None
+                if self.log_channel_id:
+                    log_channel = self.get_channel(self.log_channel_id)
+                    if not log_channel:
+                        try:
+                            log_channel = await self.fetch_channel(self.log_channel_id)
+                        except Exception as fetch_err:
+                            logger.error(f"Failed to fetch log channel {self.log_channel_id}: {fetch_err}")
+
+                if log_channel:
+                    error_msg = (
+                        f"❌ **챗봇 시스템 오류 발생**\n"
+                        f"• **채널**: {message.channel.mention} (ID: {message.channel.id})\n"
+                        f"• **사용자**: {message.author.mention} (ID: {message.author.id})\n"
+                        f"• **메시지 내용**: {user_content[:100]}\n"
+                        f"• **오류 내용**: `{llm_error}`"
+                    )
+                    try:
+                        await log_channel.send(error_msg)
+                    except Exception as send_err:
+                        logger.error(f"Failed to send error message to log channel: {send_err}")
+                        # Fallback: if sending to log channel failed, send to active channel
+                        try:
+                            await message.reply(f"❌ {llm_error}")
+                        except Exception as reply_err:
+                            logger.error(f"Failed to send fallback reply: {reply_err}")
+                else:
+                    # No log channel, or log channel could not be resolved -> send to active conversation channel
                     try:
                         await message.reply(f"❌ {llm_error}")
                     except Exception as reply_err:
-                        logger.error(f"Failed to send fallback reply: {reply_err}")
+                        logger.error(f"Failed to send reply to active channel: {reply_err}")
             else:
-                # No log channel, or log channel could not be resolved -> send to active conversation channel
+                # Save dialog to conversational history if memory is enabled
+                if self.use_memory:
+                    if message.channel.id not in self.channel_history:
+                        self.channel_history[message.channel.id] = []
+                    self.channel_history[message.channel.id].append({"role": "user", "content": user_content})
+                    self.channel_history[message.channel.id].append({"role": "assistant", "content": response})
+                    # Cap the sliding history window at last 10 messages (5 turns)
+                    if len(self.channel_history[message.channel.id]) > 10:
+                        self.channel_history[message.channel.id] = self.channel_history[message.channel.id][-10:]
+
+                # Check if there are any newer messages in the channel after our prompt message
+                has_newer_messages = False
                 try:
-                    await message.reply(f"❌ {llm_error}")
-                except Exception as reply_err:
-                    logger.error(f"Failed to send reply to active channel: {reply_err}")
-        else:
-            # Send the response (handling Discord's 2000 character limit)
-            chunks = self.split_message(response)
-            for chunk in chunks:
-                try:
-                    await message.reply(chunk)
-                except Exception as e:
-                    logger.error(f"Failed to send message chunk: {e}")
+                    async for _ in message.channel.history(after=message, limit=1):
+                        has_newer_messages = True
+                        break
+                except Exception as history_err:
+                    logger.warning(f"Failed to check newer messages: {history_err}")
+
+                # Send the response (handling Discord's 2000 character limit)
+                chunks = self.split_message(response)
+                for chunk in chunks:
+                    try:
+                        if has_newer_messages:
+                            await message.reply(chunk)
+                        else:
+                            await message.channel.send(chunk)
+                    except Exception as e:
+                        logger.error(f"Failed to send message chunk: {e}")
 
     @staticmethod
     def split_message(text: str, limit: int = 2000) -> List[str]:

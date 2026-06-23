@@ -9,9 +9,9 @@ class BaseLLMClient:
     Abstract Base Class for local LLM integration.
     Allows easy porting by ensuring all clients expose the same async interface.
     """
-    async def generate_response(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+    async def generate_response(self, prompt: str, system_prompt: Optional[str] = None, history: Optional[list[dict]] = None) -> str:
         """
-        Sends the prompt and an optional system prompt to the local LLM and returns the generated answer.
+        Sends the prompt, an optional system prompt, and optional context history to the local LLM and returns the generated answer.
         """
         raise NotImplementedError("generate_response must be implemented by subclasses.")
 
@@ -27,12 +27,14 @@ class OllamaClient(BaseLLMClient):
         self.timeout = timeout
         logger.info(f"OllamaClient initialized with URL: {self.api_url}, model: {self.model}, timeout: {self.timeout}")
 
-    async def generate_response(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+    async def generate_response(self, prompt: str, system_prompt: Optional[str] = None, history: Optional[list[dict]] = None) -> str:
         endpoint = f"{self.api_url}/api/chat"
         
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
+        if history:
+            messages.extend(history)
         messages.append({"role": "user", "content": prompt})
 
         payload = {
@@ -72,12 +74,14 @@ class OpenAICompatibleClient(BaseLLMClient):
         self.timeout = timeout
         logger.info(f"{provider_name}Client initialized with URL: {self.api_url}, model: {self.model}, timeout: {self.timeout}")
 
-    async def generate_response(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+    async def generate_response(self, prompt: str, system_prompt: Optional[str] = None, history: Optional[list[dict]] = None) -> str:
         endpoint = f"{self.api_url}/v1/chat/completions"
         
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
+        if history:
+            messages.extend(history)
         messages.append({"role": "user", "content": prompt})
 
         payload = {

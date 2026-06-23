@@ -37,6 +37,8 @@ def build_dashboard_embed(client: discord.Client, status_msg: str = "정상 작�
     else:
         persona_status = "❌ 파일 누락됨"
 
+    memory_status = "🟢 활성화" if getattr(client, "use_memory", False) else "🔴 비활성화"
+
     embed = discord.Embed(
         title="🤖 Danddobot 관리 대시보드",
         description="단또봇의 실시간 상태를 모니터링하고 설정을 변경할 수 있는 전용 채널 콘솔입니다.",
@@ -44,6 +46,7 @@ def build_dashboard_embed(client: discord.Client, status_msg: str = "정상 작�
     )
     embed.add_field(name="🟢 시스템 상태", value=f"`{status_msg}`", inline=True)
     embed.add_field(name="💬 활성 대화 채널", value=channel_mention, inline=True)
+    embed.add_field(name="🧠 대화 기억 상태", value=f"`{memory_status}`", inline=True)
     embed.add_field(name="⏱️ Discord API 지연 시간", value=f"`{round(client.latency * 1000)}ms`", inline=True)
     embed.add_field(name="🧠 LLM 엔진 설정", value=llm_info, inline=False)
     embed.add_field(name="📄 페르소나 설정", value=persona_status, inline=False)
@@ -260,6 +263,17 @@ class AdminDashboardView(ui.View):
         logger.info(f"Edit timeout modal requested by user {interaction.user} in {interaction.channel}")
         modal = LlmTimeoutEditModal(self.client)
         await interaction.response.send_modal(modal)
+
+    @ui.button(label="🧠 대화 기억 On/Off", style=discord.ButtonStyle.success, custom_id="danddobot_admin_toggle_memory")
+    async def toggle_memory_btn(self, interaction: discord.Interaction, button: ui.Button):
+        logger.info(f"Toggle memory requested by user {interaction.user}")
+        new_state = await self.client.toggle_memory()
+        state_str = "활성화" if new_state else "비활성화"
+        
+        # Update dashboard embed
+        embed = build_dashboard_embed(self.client, status_msg=f"대화 기억 {state_str}")
+        await interaction.message.edit(embed=embed)
+        await interaction.response.send_message(f"✅ 대화 기억 기능이 **{state_str}** 되었습니다!", ephemeral=True)
 
     @ui.button(label="🩺 시스템 진단", style=discord.ButtonStyle.secondary, custom_id="danddobot_admin_diagnose")
     async def diagnose_system_btn(self, interaction: discord.Interaction, button: ui.Button):
