@@ -260,13 +260,13 @@ class DanddobotClient(discord.Client):
                     logger.error(f"Failed to send error message to log channel: {send_err}")
                     # Fallback: if sending to log channel failed, send to active channel
                     try:
-                        await message.reply("❌ 답변을 생성하는 동안 오류가 발생했습니다.")
+                        await message.reply(f"❌ {llm_error}")
                     except Exception as reply_err:
                         logger.error(f"Failed to send fallback reply: {reply_err}")
             else:
                 # No log channel, or log channel could not be resolved -> send to active conversation channel
                 try:
-                    await message.reply("❌ 답변을 생성하는 동안 오류가 발생했습니다.")
+                    await message.reply(f"❌ {llm_error}")
                 except Exception as reply_err:
                     logger.error(f"Failed to send reply to active channel: {reply_err}")
         else:

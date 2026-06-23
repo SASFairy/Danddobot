@@ -49,12 +49,15 @@ class OllamaClient(BaseLLMClient):
                 result = response.json()
                 answer = result.get("message", {}).get("content", "")
                 return answer
+        except httpx.TimeoutException as e:
+            logger.error(f"Timeout occurred while contacting Ollama: {e}")
+            raise RuntimeError(f"로컬 LLM 응답 요청 시간이 초과되었습니다. (Timeout: {e})") from e
         except httpx.HTTPError as e:
             logger.error(f"HTTP error occurred while contacting Ollama: {e}")
-            return f"❌ 로컬 LLM 통신 중 오류가 발생했습니다. (HTTP Error: {e})"
+            raise RuntimeError(f"로컬 LLM 통신 중 오류가 발생했습니다. (HTTP Error: {e})") from e
         except Exception as e:
             logger.error(f"Unexpected error in Ollama client: {e}")
-            return f"❌ 예기치 못한 오류가 발생했습니다. (Error: {e})"
+            raise RuntimeError(f"예기치 못한 오류가 발생했습니다. (Error: {e})") from e
 
 
 class OpenAICompatibleClient(BaseLLMClient):
@@ -92,13 +95,16 @@ class OpenAICompatibleClient(BaseLLMClient):
                 if choices:
                     answer = choices[0].get("message", {}).get("content", "")
                     return answer
-                return "❌ API가 올바른 대답 형식을 반환하지 않았습니다."
+                raise ValueError("API가 올바른 대답 형식을 반환하지 않았습니다.")
+        except httpx.TimeoutException as e:
+            logger.error(f"Timeout occurred while contacting LLM: {e}")
+            raise RuntimeError(f"로컬 LLM 응답 요청 시간이 초과되었습니다. (Timeout: {e})") from e
         except httpx.HTTPError as e:
             logger.error(f"HTTP error occurred while contacting LLM: {e}")
-            return f"❌ 로컬 LLM 통신 중 오류가 발생했습니다. (HTTP Error: {e})"
+            raise RuntimeError(f"로컬 LLM 통신 중 오류가 발생했습니다. (HTTP Error: {e})") from e
         except Exception as e:
             logger.error(f"Unexpected error in OpenAI-compatible client: {e}")
-            return f"❌ 예기치 못한 오류가 발생했습니다. (Error: {e})"
+            raise RuntimeError(f"예기치 못한 오류가 발생했습니다. (Error: {e})") from e
 
 
 class LLMClientFactory:
