@@ -252,6 +252,11 @@ class AdminDashboardView(ui.View):
         # Add the channel select dropdown menu to the view
         self.add_item(AdminChannelSelect(client))
 
+        # Set dynamic initial button label and style based on state
+        use_mem = getattr(client, "use_memory", False)
+        self.toggle_memory_btn.label = "🧠 대화 기억: On" if use_mem else "🧠 대화 기억: Off"
+        self.toggle_memory_btn.style = discord.ButtonStyle.success if use_mem else discord.ButtonStyle.secondary
+
     @ui.button(label="✏️ 페르소나 편집", style=discord.ButtonStyle.success, custom_id="danddobot_admin_edit")
     async def edit_persona_btn(self, interaction: discord.Interaction, button: ui.Button):
         logger.info(f"Edit persona modal requested by user {interaction.user} in {interaction.channel}")
@@ -264,15 +269,19 @@ class AdminDashboardView(ui.View):
         modal = LlmTimeoutEditModal(self.client)
         await interaction.response.send_modal(modal)
 
-    @ui.button(label="🧠 대화 기억 On/Off", style=discord.ButtonStyle.success, custom_id="danddobot_admin_toggle_memory")
+    @ui.button(label="🧠 대화 기억: Off", style=discord.ButtonStyle.secondary, custom_id="danddobot_admin_toggle_memory")
     async def toggle_memory_btn(self, interaction: discord.Interaction, button: ui.Button):
         logger.info(f"Toggle memory requested by user {interaction.user}")
         new_state = await self.client.toggle_memory()
         state_str = "활성화" if new_state else "비활성화"
         
-        # Update dashboard embed
+        # Update button text and style dynamically
+        button.label = "🧠 대화 기억: On" if new_state else "🧠 대화 기억: Off"
+        button.style = discord.ButtonStyle.success if new_state else discord.ButtonStyle.secondary
+        
+        # Update dashboard embed and re-render the view components
         embed = build_dashboard_embed(self.client, status_msg=f"대화 기억 {state_str}")
-        await interaction.message.edit(embed=embed)
+        await interaction.message.edit(embed=embed, view=self)
         await interaction.response.send_message(f"✅ 대화 기억 기능이 **{state_str}** 되었습니다!", ephemeral=True)
 
     @ui.button(label="🩺 시스템 진단", style=discord.ButtonStyle.secondary, custom_id="danddobot_admin_diagnose")
