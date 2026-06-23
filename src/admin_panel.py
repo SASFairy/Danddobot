@@ -21,7 +21,9 @@ def build_dashboard_embed(client: discord.Client, status_msg: str = "정상 작�
     if hasattr(client, "llm_client") and client.llm_client:
         provider = getattr(client.llm_client, "provider_name", client.llm_client.__class__.__name__.replace("Client", ""))
         model = getattr(client.llm_client, "model", "unknown")
-        llm_info = f"**Provider**: `{provider}`\n**Model**: `{model}`"
+        timeout_val = getattr(client.llm_client, "timeout", None)
+        timeout_str = "무제한" if timeout_val is None else f"{timeout_val}초"
+        llm_info = f"**Provider**: `{provider}`\n**Model**: `{model}`\n**Timeout**: `{timeout_str}`"
 
     persona_path = getattr(client, "persona_file_path", "config/persona.txt")
     persona_status = "존재하지 않음"

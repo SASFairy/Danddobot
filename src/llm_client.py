@@ -20,11 +20,12 @@ class OllamaClient(BaseLLMClient):
     """
     Client for Ollama's direct HTTP Chat API (/api/chat).
     """
-    def __init__(self, api_url: str, model: str):
+    def __init__(self, api_url: str, model: str, timeout: Optional[float] = 300.0):
         # Ensure the api_url doesn't end with a slash for clean endpoint appending
         self.api_url = api_url.rstrip('/')
         self.model = model
-        logger.info(f"OllamaClient initialized with URL: {self.api_url}, model: {self.model}")
+        self.timeout = timeout
+        logger.info(f"OllamaClient initialized with URL: {self.api_url}, model: {self.model}, timeout: {self.timeout}")
 
     async def generate_response(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         endpoint = f"{self.api_url}/api/chat"
@@ -41,7 +42,7 @@ class OllamaClient(BaseLLMClient):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=300.0) as client:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
                 logger.debug(f"Sending request to Ollama endpoint: {endpoint}")
                 response = await client.post(endpoint, json=payload)
                 response.raise_for_status()
@@ -65,10 +66,11 @@ class OpenAICompatibleClient(BaseLLMClient):
     Client for OpenAI-compatible local APIs (vLLM, Llama.cpp, LocalAI, etc.)
     hitting the /v1/chat/completions endpoint.
     """
-    def __init__(self, api_url: str, model: str, provider_name: str = "OpenAICompatible"):
+    def __init__(self, api_url: str, model: str, provider_name: str = "OpenAICompatible", timeout: Optional[float] = 300.0):
         self.api_url = api_url.rstrip('/')
         self.model = model
-        logger.info(f"{provider_name}Client initialized with URL: {self.api_url}, model: {self.model}")
+        self.timeout = timeout
+        logger.info(f"{provider_name}Client initialized with URL: {self.api_url}, model: {self.model}, timeout: {self.timeout}")
 
     async def generate_response(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         endpoint = f"{self.api_url}/v1/chat/completions"
@@ -85,7 +87,7 @@ class OpenAICompatibleClient(BaseLLMClient):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=300.0) as client:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
                 logger.debug(f"Sending request to OpenAI-compatible endpoint: {endpoint}")
                 response = await client.post(endpoint, json=payload)
                 response.raise_for_status()
@@ -112,18 +114,18 @@ class LLMClientFactory:
     Factory to resolve the concrete BaseLLMClient instance dynamically.
     """
     @staticmethod
-    def get_client(provider: str, api_url: str, model: str) -> BaseLLMClient:
+    def get_client(provider: str, api_url: str, model: str, timeout: Optional[float] = 300.0) -> BaseLLMClient:
         prov = provider.upper()
         if prov == "OLLAMA":
-            return OllamaClient(api_url, model)
+            return OllamaClient(api_url, model, timeout=timeout)
         elif prov == "OPENAI_COMPATIBLE":
-            return OpenAICompatibleClient(api_url, model, "OpenAICompatible")
+            return OpenAICompatibleClient(api_url, model, "OpenAICompatible", timeout=timeout)
         elif prov == "LLAMA_CPP":
-            return OpenAICompatibleClient(api_url, model, "LlamaCpp")
+            return OpenAICompatibleClient(api_url, model, "LlamaCpp", timeout=timeout)
         elif prov == "VLLM":
-            return OpenAICompatibleClient(api_url, model, "vLLM")
+            return OpenAICompatibleClient(api_url, model, "vLLM", timeout=timeout)
         elif prov == "LM_STUDIO":
-            return OpenAICompatibleClient(api_url, model, "LMStudio")
+            return OpenAICompatibleClient(api_url, model, "LMStudio", timeout=timeout)
         else:
             logger.warning(f"Unknown LLM provider: {provider}. Defaulting to OLLAMA client.")
-            return OllamaClient(api_url, model)
+            return OllamaClient(api_url, model, timeout=timeout)

@@ -35,6 +35,22 @@ def main():
     persona_file_path = os.getenv("PERSONA_FILE_PATH", "config/persona.txt")
     channels_file_path = os.getenv("CHANNELS_FILE_PATH", "config/channels.txt")
     
+    llm_timeout_raw = os.getenv("LLM_TIMEOUT")
+    llm_timeout = 300.0
+    if llm_timeout_raw and llm_timeout_raw.strip():
+        try:
+            val = float(llm_timeout_raw)
+            if val <= 0:
+                llm_timeout = None
+                logger.info("LLM Timeout is configured to be unlimited (None)")
+            else:
+                llm_timeout = val
+                logger.info(f"LLM Timeout configured: {llm_timeout} seconds")
+        except ValueError:
+            logger.warning(
+                f"LLM_TIMEOUT must be a valid number or blank. Received: '{llm_timeout_raw}'. Defaulting to 300.0 seconds."
+            )
+
     # Read Admin Channel Configuration
     admin_channel_id_raw = os.getenv("ADMIN_CHANNEL_ID")
     admin_channel_id = None
@@ -59,7 +75,7 @@ def main():
                 f"LOG_CHANNEL_ID must be a valid integer or blank. Received: '{log_channel_id_raw}'. Dedicated log channel will be disabled."
             )
 
-    logger.info(f"LLM Configuration: Provider={llm_provider}, API_Url={llm_api_url}, Model={llm_model}")
+    logger.info(f"LLM Configuration: Provider={llm_provider}, API_Url={llm_api_url}, Model={llm_model}, Timeout={llm_timeout}")
     logger.info(f"Persona Prompt Path: {persona_file_path}")
     logger.info(f"Channels Config Path: {channels_file_path}")
 
@@ -67,7 +83,8 @@ def main():
     llm_client = LLMClientFactory.get_client(
         provider=llm_provider,
         api_url=llm_api_url,
-        model=llm_model
+        model=llm_model,
+        timeout=llm_timeout
     )
 
     # 5. Initialize Discord Client
