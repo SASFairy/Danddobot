@@ -1,8 +1,8 @@
 import os
 import sys
-import json
 import logging
 from dotenv import load_dotenv
+from src.state_manager import StateManager
 from src.llm_client import LLMClientFactory
 from src.bot import DanddobotClient
 
@@ -22,7 +22,10 @@ def main():
     # 2. Load environment variables from .env if present
     load_dotenv()
 
-    # 3. Read and validate environment variables
+    # 3. Initialize Centralized State Manager
+    state_manager = StateManager()
+
+    # 4. Read and validate environment variables
     discord_token = os.getenv("DISCORD_TOKEN")
 
     if not discord_token:
@@ -52,17 +55,11 @@ def main():
                 f"LLM_TIMEOUT must be a valid number or blank. Received: '{llm_timeout_raw}'. Defaulting to 300.0 seconds."
             )
 
-    # Override with persisted LLM timeout from state.json if present
-    state_path = "config/state.json"
-    if os.path.exists(state_path):
-        try:
-            with open(state_path, "r", encoding="utf-8") as f:
-                state = json.load(f)
-                if "llm_timeout" in state:
-                    llm_timeout = state["llm_timeout"]
-                    logger.info(f"Loaded persisted llm_timeout from state.json: {llm_timeout} seconds")
-        except Exception as e:
-            logger.error(f"Failed to read state file for timeout override: {e}")
+    # Override LLM Timeout from State Manager if present
+    persisted_timeout = state_manager.get_value("llm_timeout")
+    if persisted_timeout is not None or "llm_timeout" in state_manager._cache:
+        llm_timeout = persisted_timeout
+        logger.info(f"Loaded persisted llm_timeout from StateManager: {llm_timeout} seconds")
 
     # Read Admin Channel Configuration
     admin_channel_id_raw = os.getenv("ADMIN_CHANNEL_ID")
@@ -92,7 +89,7 @@ def main():
     logger.info(f"Persona Prompt Path: {persona_file_path}")
     logger.info(f"Channels Config Path: {channels_file_path}")
 
-    # 4. Initialize LLM Adapter Client
+    # 5. Initialize LLM Adapter Client
     llm_client = LLMClientFactory.get_client(
         provider=llm_provider,
         api_url=llm_api_url,
@@ -100,16 +97,17 @@ def main():
         timeout=llm_timeout
     )
 
-    # 5. Initialize Discord Client
+    # 6. Initialize Discord Client, passing StateManager
     bot = DanddobotClient(
         channels_file_path=channels_file_path,
         llm_client=llm_client,
         persona_file_path=persona_file_path,
         admin_channel_id=admin_channel_id,
-        log_channel_id=log_channel_id
+        log_channel_id=log_channel_id,
+        state_manager=state_manager
     )
 
-    # 6. Run the Bot
+    # 7. Run the Bot
     try:
         bot.run(discord_token)
     except Exception as e:

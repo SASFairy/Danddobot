@@ -1,5 +1,4 @@
 import os
-import json
 import time
 import logging
 import httpx
@@ -141,23 +140,8 @@ class LlmTimeoutEditModal(ui.Modal, title="⏱️ LLM 타임아웃 시간 설정
             await interaction.response.send_message("❌ 올바른 숫자를 입력해 주세요.", ephemeral=True)
             return
 
-        if hasattr(client, "llm_client") and client.llm_client:
-            client.llm_client.timeout = new_timeout
-
-        # Persist to config/state.json
-        state_path = "config/state.json"
-        try:
-            os.makedirs(os.path.dirname(state_path), exist_ok=True)
-            state = {}
-            if os.path.exists(state_path):
-                with open(state_path, "r", encoding="utf-8") as f:
-                    state = json.load(f)
-            state["llm_timeout"] = new_timeout
-            with open(state_path, "w", encoding="utf-8") as f:
-                json.dump(state, f)
-            logger.info(f"Persisted llm_timeout: {new_timeout} via admin dashboard")
-        except Exception as e:
-            logger.error(f"Failed to write state file for timeout: {e}")
+        # Invoke encapsulated client API to update and persist
+        await client.set_llm_timeout(new_timeout)
 
         # Update the dashboard message
         timeout_str = "무제한" if new_timeout is None else f"{new_timeout}초"
@@ -199,22 +183,8 @@ class MemoryLimitEditModal(ui.Modal, title="🔢 대화 기억 용량 설정"):
             await interaction.response.send_message("❌ 올바른 정수를 입력해 주세요.", ephemeral=True)
             return
 
-        client.max_memory_length = new_val
-
-        # Persist to config/state.json
-        state_path = "config/state.json"
-        try:
-            os.makedirs(os.path.dirname(state_path), exist_ok=True)
-            state = {}
-            if os.path.exists(state_path):
-                with open(state_path, "r", encoding="utf-8") as f:
-                    state = json.load(f)
-            state["max_memory_length"] = new_val
-            with open(state_path, "w", encoding="utf-8") as f:
-                json.dump(state, f, indent=4)
-            logger.info(f"Persisted max_memory_length: {new_val} via admin dashboard")
-        except Exception as e:
-            logger.error(f"Failed to write state file for memory limit: {e}")
+        # Invoke encapsulated client API to update and persist
+        await client.set_max_memory_length(new_val)
 
         # Rebuild dashboard view & edit message
         from src.admin_panel import build_dashboard_embed, AdminDashboardView

@@ -4,6 +4,7 @@ import os
 import asyncio
 import discord
 from typing import Dict, List, Optional
+from src.state_manager import StateManager
 from src.llm_client import BaseLLMClient
 
 logger = logging.getLogger("danddobot.bot")
@@ -44,7 +45,8 @@ class DanddobotClient(discord.Client):
     calling the local LLM with a live persona system prompt, and returning responses.
     """
     def __init__(self, channels_file_path: str, llm_client: BaseLLMClient, persona_file_path: str,
-                 admin_channel_id: Optional[int] = None, log_channel_id: Optional[int] = None, *args, **kwargs):
+                 state_manager: StateManager, admin_channel_id: Optional[int] = None, 
+                 log_channel_id: Optional[int] = None, *args, **kwargs):
         # We require message_content intents to read user messages
         intents = discord.Intents.default()
         intents.message_content = True
@@ -58,43 +60,36 @@ class DanddobotClient(discord.Client):
         self.admin_channel_id = admin_channel_id
         self.log_channel_id = log_channel_id
 
+        # Centralized configurations cache
+        self.state_manager = state_manager
+
         # Load the registered channels list from config file
         self.registered_channels: Dict[int, str] = load_registered_channels(channels_file_path)
 
-        # Initialize memory configurations and FIFO concurrency lock
-        self.use_memory: bool = False
-        self.max_memory_length: int = 10
+        # Initialize history context and concurrency execution lock
         self.channel_history: Dict[int, List[dict]] = {}
         self.lock = asyncio.Lock()
 
-        # Load persisted active channel and memory state from state.json
-        self.active_channel_id: Optional[int] = None
-        state_path = "config/state.json"
-        if os.path.exists(state_path):
-            try:
-                with open(state_path, "r", encoding="utf-8") as f:
-                    state = json.load(f)
-                    saved_id = state.get("channel_id")
-                    if saved_id and int(saved_id) in self.registered_channels:
-                        self.active_channel_id = int(saved_id)
-                        logger.info(f"Loaded persisted active_channel_id from state.json: {self.active_channel_id}")
-                    self.use_memory = state.get("use_memory", False)
-                    logger.info(f"Loaded persisted use_memory from state.json: {self.use_memory}")
-                    self.max_memory_length = state.get("max_memory_length", 10)
-                    logger.info(f"Loaded persisted max_memory_length from state.json: {self.max_memory_length}")
-            except Exception as e:
-                logger.error(f"Failed to read state file: {e}")
+        # Retrieve configurations from state_manager
+        self.use_memory: bool = self.state_manager.get_value("use_memory", False)
+        self.max_memory_length: int = self.state_manager.get_value("max_memory_length", 10)
+        self.active_channel_id: Optional[int] = self.state_manager.get_value("channel_id")
+
+        if self.active_channel_id and int(self.active_channel_id) in self.registered_channels:
+            self.active_channel_id = int(self.active_channel_id)
+        else:
+            self.active_channel_id = None
 
         if self.active_channel_id is None and self.registered_channels:
             self.active_channel_id = next(iter(self.registered_channels))
-            logger.info(f"No persisted state found. Defaulting active channel to first registered: {self.active_channel_id}")
+            logger.info(f"No persisted active channel found. Defaulting to first registered: {self.active_channel_id}")
         elif self.active_channel_id is None:
             logger.warning("No registered channels found. Bot will not respond to any channel messages.")
 
-        # Keep a legacy alias for convenience in embed/should_respond
+        # Keep legacy alias for backward compatibility
         self.channel_id = self.active_channel_id
 
-        # Initialize CommandTree for application commands (slash commands) cleanup
+        # Initialize CommandTree for application commands (slash commands)
         self.tree = discord.app_commands.CommandTree(self)
 
         logger.info(
@@ -102,55 +97,44 @@ class DanddobotClient(discord.Client):
             f"Registered channels: {list(self.registered_channels.keys())}, "
             f"Admin channel: {self.admin_channel_id}, "
             f"Log channel: {self.log_channel_id}, "
-            f"Memory Enabled: {self.use_memory}"
+            f"Memory Enabled: {self.use_memory} (Max capacity: {self.max_memory_length})"
         )
 
     async def update_active_channel(self, new_channel_id: int):
-        """Update the active chat channel and persist the change to state.json, preserving other fields."""
+        """Update the active chat channel and persist the change using StateManager."""
         self.active_channel_id = new_channel_id
         self.channel_id = new_channel_id  # Keep alias in sync
-        state_path = "config/state.json"
-        try:
-            os.makedirs(os.path.dirname(state_path), exist_ok=True)
-            state = {}
-            if os.path.exists(state_path):
-                with open(state_path, "r", encoding="utf-8") as f:
-                    state = json.load(f)
-            state["channel_id"] = new_channel_id
-            with open(state_path, "w", encoding="utf-8") as f:
-                json.dump(state, f, indent=4)
-            logger.info(f"Persisted active_channel_id: {new_channel_id}")
-        except Exception as e:
-            logger.error(f"Failed to write state file: {e}")
+        await self.state_manager.set_value("channel_id", new_channel_id)
+        logger.info(f"Active channel updated and persisted: {new_channel_id}")
 
     async def toggle_memory(self) -> bool:
-        """Toggles conversational memory and persists the state."""
+        """Toggles conversational memory and persists the state using StateManager."""
         self.use_memory = not self.use_memory
-        state_path = "config/state.json"
-        try:
-            os.makedirs(os.path.dirname(state_path), exist_ok=True)
-            state = {}
-            if os.path.exists(state_path):
-                with open(state_path, "r", encoding="utf-8") as f:
-                    state = json.load(f)
-            state["use_memory"] = self.use_memory
-            with open(state_path, "w", encoding="utf-8") as f:
-                json.dump(state, f, indent=4)
-            logger.info(f"Persisted use_memory: {self.use_memory}")
-            
-            # Clear history when toggled off
-            if not self.use_memory:
-                self.channel_history.clear()
-        except Exception as e:
-            logger.error(f"Failed to write state file: {e}")
+        await self.state_manager.set_value("use_memory", self.use_memory)
+        logger.info(f"Conversational memory toggled and persisted: {self.use_memory}")
+        
+        # Clear history when toggled off
+        if not self.use_memory:
+            self.channel_history.clear()
         return self.use_memory
+
+    async def set_max_memory_length(self, limit: int):
+        """Sets the conversational memory history size and persists using StateManager."""
+        self.max_memory_length = limit
+        await self.state_manager.set_value("max_memory_length", limit)
+        logger.info(f"Max memory capacity updated and persisted: {limit}")
+
+    async def set_llm_timeout(self, timeout: Optional[float]):
+        """Sets the LLM client timeout and persists using StateManager."""
+        if hasattr(self, "llm_client") and self.llm_client:
+            self.llm_client.timeout = timeout
+        await self.state_manager.set_value("llm_timeout", timeout)
+        logger.info(f"LLM Client Timeout updated and persisted: {timeout}")
 
     def reload_channels(self):
         """Reload the registered channels list from the config file."""
         self.registered_channels = load_registered_channels(self.channels_file_path)
         logger.info(f"Channels reloaded: {self.registered_channels}")
-
-
 
     async def on_ready(self):
         logger.info(f"Bot logged in as {self.user} (ID: {self.user.id})")
@@ -203,14 +187,12 @@ class DanddobotClient(discord.Client):
     def should_respond(self, message: discord.Message) -> bool:
         """
         Determines whether the bot should respond to a given message.
-        This design isolates message filtering logic, allowing easy future additions
-        such as role validation, blacklists, or rate limiting.
         """
         # 1. Ignore messages sent by the bot itself
         if message.author == self.user:
             return False
 
-        # 2. Ignore messages in the admin channel (it is only for dashboard controls)
+        # 2. Ignore messages in the admin channel
         if self.admin_channel_id and message.channel.id == self.admin_channel_id:
             return False
 
@@ -218,18 +200,11 @@ class DanddobotClient(discord.Client):
         if not self.active_channel_id or message.channel.id != self.active_channel_id:
             return False
 
-        # (Future extensions can be added here, e.g.)
-        # - Ignore messages from specific roles
-        # - Add message rate-limiting/throttling
-        # - Ignore bots
-
         return True
 
     def load_persona(self) -> str:
         """
-        Dynamically reads the persona prompt file to allow real-time prompt editing
-        without restarting the container. If the file is missing or fails to load,
-        returns a default system prompt.
+        Dynamically reads the persona prompt file to allow real-time prompt editing.
         """
         default_persona = (
             "당신은 디스코드 채널의 친절한 AI 어시스턴트입니다. "
@@ -253,6 +228,43 @@ class DanddobotClient(discord.Client):
 
         return default_persona
 
+    async def _handle_llm_error(self, message: discord.Message, llm_error: Exception):
+        """
+        Gracefully formats and dispatches LLM API failure notifications to the logging
+        or active conversation channel.
+        """
+        log_channel = None
+        if self.log_channel_id:
+            log_channel = self.get_channel(self.log_channel_id)
+            if not log_channel:
+                try:
+                    log_channel = await self.fetch_channel(self.log_channel_id)
+                except Exception as fetch_err:
+                    logger.error(f"Failed to fetch log channel {self.log_channel_id}: {fetch_err}")
+
+        user_content = message.content
+        if log_channel:
+            error_msg = (
+                f"❌ **챗봇 시스템 오류 발생**\n"
+                f"• **채널**: {message.channel.mention} (ID: {message.channel.id})\n"
+                f"• **사용자**: {message.author.mention} (ID: {message.author.id})\n"
+                f"• **메시지 내용**: {user_content[:100]}\n"
+                f"• **오류 내용**: `{llm_error}`"
+            )
+            try:
+                await log_channel.send(error_msg)
+            except Exception as send_err:
+                logger.error(f"Failed to send error message to log channel: {send_err}")
+                try:
+                    await message.reply(f"❌ {llm_error}")
+                except Exception as reply_err:
+                    logger.error(f"Failed to send fallback reply: {reply_err}")
+        else:
+            try:
+                await message.reply(f"❌ {llm_error}")
+            except Exception as reply_err:
+                logger.error(f"Failed to send reply to active channel: {reply_err}")
+
     async def on_message(self, message: discord.Message):
         # Verify if we should handle this message
         if not self.should_respond(message):
@@ -263,7 +275,7 @@ class DanddobotClient(discord.Client):
             user_content = message.content
             logger.info(f"Received message from {message.author} in target channel: '{user_content[:50]}...'")
 
-            # Load system prompt dynamically (allows host-side modifications)
+            # Load system prompt dynamically
             system_prompt = self.load_persona()
 
             # Load history context if memory is enabled
@@ -271,50 +283,18 @@ class DanddobotClient(discord.Client):
             if self.use_memory:
                 history = self.channel_history.get(message.channel.id, [])
 
-            # Display typing status to the user while LLM generates the response
+            # Display typing status while LLM generates response
             llm_error = None
             response = None
             async with message.channel.typing():
                 try:
-                    # Call the local LLM via the adapted client (passing history context)
                     response = await self.llm_client.generate_response(user_content, system_prompt, history=history)
                 except Exception as e:
                     logger.error(f"Failed to generate LLM response: {e}")
                     llm_error = e
 
             if llm_error is not None:
-                log_channel = None
-                if self.log_channel_id:
-                    log_channel = self.get_channel(self.log_channel_id)
-                    if not log_channel:
-                        try:
-                            log_channel = await self.fetch_channel(self.log_channel_id)
-                        except Exception as fetch_err:
-                            logger.error(f"Failed to fetch log channel {self.log_channel_id}: {fetch_err}")
-
-                if log_channel:
-                    error_msg = (
-                        f"❌ **챗봇 시스템 오류 발생**\n"
-                        f"• **채널**: {message.channel.mention} (ID: {message.channel.id})\n"
-                        f"• **사용자**: {message.author.mention} (ID: {message.author.id})\n"
-                        f"• **메시지 내용**: {user_content[:100]}\n"
-                        f"• **오류 내용**: `{llm_error}`"
-                    )
-                    try:
-                        await log_channel.send(error_msg)
-                    except Exception as send_err:
-                        logger.error(f"Failed to send error message to log channel: {send_err}")
-                        # Fallback: if sending to log channel failed, send to active channel
-                        try:
-                            await message.reply(f"❌ {llm_error}")
-                        except Exception as reply_err:
-                            logger.error(f"Failed to send fallback reply: {reply_err}")
-                else:
-                    # No log channel, or log channel could not be resolved -> send to active conversation channel
-                    try:
-                        await message.reply(f"❌ {llm_error}")
-                    except Exception as reply_err:
-                        logger.error(f"Failed to send reply to active channel: {reply_err}")
+                await self._handle_llm_error(message, llm_error)
             else:
                 # Save dialog to conversational history if memory is enabled
                 if self.use_memory:
@@ -322,7 +302,7 @@ class DanddobotClient(discord.Client):
                         self.channel_history[message.channel.id] = []
                     self.channel_history[message.channel.id].append({"role": "user", "content": user_content})
                     self.channel_history[message.channel.id].append({"role": "assistant", "content": response})
-                    # Cap the sliding history window at max memory length
+                    # Cap sliding history window using the dynamic limit
                     if len(self.channel_history[message.channel.id]) > self.max_memory_length:
                         self.channel_history[message.channel.id] = self.channel_history[message.channel.id][-self.max_memory_length:]
 
@@ -335,7 +315,7 @@ class DanddobotClient(discord.Client):
                 except Exception as history_err:
                     logger.warning(f"Failed to check newer messages: {history_err}")
 
-                # Send the response (handling Discord's 2000 character limit)
+                # Send the response (handling Discord's 2000 character limit using Option A)
                 chunks = self.split_message(response)
                 for idx, chunk in enumerate(chunks):
                     try:
@@ -360,20 +340,16 @@ class DanddobotClient(discord.Client):
         current_chunk = ""
 
         for line in lines:
-            # If a single line is longer than the limit, break it by character count
             if len(line) > limit:
-                # Flush the current chunk first if it exists
                 if current_chunk:
                     chunks.append(current_chunk.strip())
                     current_chunk = ""
                 
-                # Split the long line into limit-sized pieces
                 temp_line = line
                 while len(temp_line) > limit:
                     chunks.append(temp_line[:limit])
                     temp_line = temp_line[limit:]
                 current_chunk = temp_line + "\n"
-            # If adding this line exceeds the limit, flush the current chunk
             elif len(current_chunk) + len(line) + 1 > limit:
                 chunks.append(current_chunk.strip())
                 current_chunk = line + "\n"
@@ -384,3 +360,10 @@ class DanddobotClient(discord.Client):
             chunks.append(current_chunk.strip())
 
         return chunks
+
+    async def close(self):
+        """Disposes of persistent client pools and logs out from Discord gateway."""
+        if hasattr(self, "llm_client") and self.llm_client:
+            await self.llm_client.close()
+            logger.info("Closed LLM client connection pool.")
+        await super().close()

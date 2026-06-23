@@ -15,6 +15,12 @@ class BaseLLMClient:
         """
         raise NotImplementedError("generate_response must be implemented by subclasses.")
 
+    async def close(self):
+        """
+        Closes any long-lived persistent HTTP connection pools.
+        """
+        pass
+
 
 class OllamaClient(BaseLLMClient):
     """
@@ -25,7 +31,15 @@ class OllamaClient(BaseLLMClient):
         self.api_url = api_url.rstrip('/')
         self.model = model
         self.timeout = timeout
+        self._client: Optional[httpx.AsyncClient] = None
         logger.info(f"OllamaClient initialized with URL: {self.api_url}, model: {self.model}, timeout: {self.timeout}")
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Lazily instantiates and returns a persistent shared httpx.AsyncClient."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient()  # Single shared instance
+            logger.info("Shared persistent connection pool initialized for OllamaClient.")
+        return self._client
 
     async def generate_response(self, prompt: str, system_prompt: Optional[str] = None, history: Optional[list[dict]] = None) -> str:
         endpoint = f"{self.api_url}/api/chat"
@@ -44,14 +58,15 @@ class OllamaClient(BaseLLMClient):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                logger.debug(f"Sending request to Ollama endpoint: {endpoint}")
-                response = await client.post(endpoint, json=payload)
-                response.raise_for_status()
-                
-                result = response.json()
-                answer = result.get("message", {}).get("content", "")
-                return answer
+            client = await self._get_client()
+            logger.debug(f"Sending request to Ollama endpoint: {endpoint}")
+            # Dynamically pass self.timeout on each request to allow real-time changes
+            response = await client.post(endpoint, json=payload, timeout=self.timeout)
+            response.raise_for_status()
+            
+            result = response.json()
+            answer = result.get("message", {}).get("content", "")
+            return answer
         except httpx.TimeoutException as e:
             logger.error(f"Timeout occurred while contacting Ollama: {e}")
             raise RuntimeError(f"로컬 LLM 응답 요청 시간이 초과되었습니다. (Timeout: {e})") from e
@@ -61,6 +76,12 @@ class OllamaClient(BaseLLMClient):
         except Exception as e:
             logger.error(f"Unexpected error in Ollama client: {e}")
             raise RuntimeError(f"예기치 못한 오류가 발생했습니다. (Error: {e})") from e
+
+    async def close(self):
+        """Disposes of the long-lived client connection pool gracefully."""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            logger.info("Shared persistent connection pool closed for OllamaClient.")
 
 
 class OpenAICompatibleClient(BaseLLMClient):
@@ -72,7 +93,16 @@ class OpenAICompatibleClient(BaseLLMClient):
         self.api_url = api_url.rstrip('/')
         self.model = model
         self.timeout = timeout
+        self.provider_name = provider_name
+        self._client: Optional[httpx.AsyncClient] = None
         logger.info(f"{provider_name}Client initialized with URL: {self.api_url}, model: {self.model}, timeout: {self.timeout}")
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Lazily instantiates and returns a persistent shared httpx.AsyncClient."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient()  # Single shared instance
+            logger.info(f"Shared persistent connection pool initialized for {self.provider_name}Client.")
+        return self._client
 
     async def generate_response(self, prompt: str, system_prompt: Optional[str] = None, history: Optional[list[dict]] = None) -> str:
         endpoint = f"{self.api_url}/v1/chat/completions"
@@ -91,17 +121,18 @@ class OpenAICompatibleClient(BaseLLMClient):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                logger.debug(f"Sending request to OpenAI-compatible endpoint: {endpoint}")
-                response = await client.post(endpoint, json=payload)
-                response.raise_for_status()
-                
-                result = response.json()
-                choices = result.get("choices", [])
-                if choices:
-                    answer = choices[0].get("message", {}).get("content", "")
-                    return answer
-                raise ValueError("API가 올바른 대답 형식을 반환하지 않았습니다.")
+            client = await self._get_client()
+            logger.debug(f"Sending request to OpenAI-compatible endpoint: {endpoint}")
+            # Dynamically pass self.timeout on each request to allow real-time changes
+            response = await client.post(endpoint, json=payload, timeout=self.timeout)
+            response.raise_for_status()
+            
+            result = response.json()
+            choices = result.get("choices", [])
+            if choices:
+                answer = choices[0].get("message", {}).get("content", "")
+                return answer
+            raise ValueError("API가 올바른 대답 형식을 반환하지 않았습니다.")
         except httpx.TimeoutException as e:
             logger.error(f"Timeout occurred while contacting LLM: {e}")
             raise RuntimeError(f"로컬 LLM 응답 요청 시간이 초과되었습니다. (Timeout: {e})") from e
@@ -111,6 +142,12 @@ class OpenAICompatibleClient(BaseLLMClient):
         except Exception as e:
             logger.error(f"Unexpected error in OpenAI-compatible client: {e}")
             raise RuntimeError(f"예기치 못한 오류가 발생했습니다. (Error: {e})") from e
+
+    async def close(self):
+        """Disposes of the long-lived client connection pool gracefully."""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            logger.info(f"Shared persistent connection pool closed for {self.provider_name}Client.")
 
 
 class LLMClientFactory:
