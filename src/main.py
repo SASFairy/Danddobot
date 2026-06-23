@@ -47,6 +47,18 @@ def main():
                 f"ADMIN_CHANNEL_ID must be a valid integer or blank. Received: '{admin_channel_id_raw}'. Admin dashboard will be disabled."
             )
 
+    # Read Log Channel Configuration
+    log_channel_id_raw = os.getenv("LOG_CHANNEL_ID")
+    log_channel_id = None
+    if log_channel_id_raw and log_channel_id_raw.strip():
+        try:
+            log_channel_id = int(log_channel_id_raw)
+            logger.info(f"Target Log Channel ID: {log_channel_id}")
+        except ValueError:
+            logger.warning(
+                f"LOG_CHANNEL_ID must be a valid integer or blank. Received: '{log_channel_id_raw}'. Dedicated log channel will be disabled."
+            )
+
     logger.info(f"LLM Configuration: Provider={llm_provider}, API_Url={llm_api_url}, Model={llm_model}")
     logger.info(f"Persona Prompt Path: {persona_file_path}")
     logger.info(f"Channels Config Path: {channels_file_path}")
@@ -63,7 +75,8 @@ def main():
         channels_file_path=channels_file_path,
         llm_client=llm_client,
         persona_file_path=persona_file_path,
-        admin_channel_id=admin_channel_id
+        admin_channel_id=admin_channel_id,
+        log_channel_id=log_channel_id
     )
 
     # 6. Run the Bot

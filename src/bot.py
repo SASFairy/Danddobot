@@ -43,7 +43,7 @@ class DanddobotClient(discord.Client):
     calling the local LLM with a live persona system prompt, and returning responses.
     """
     def __init__(self, channels_file_path: str, llm_client: BaseLLMClient, persona_file_path: str,
-                 admin_channel_id: Optional[int] = None, *args, **kwargs):
+                 admin_channel_id: Optional[int] = None, log_channel_id: Optional[int] = None, *args, **kwargs):
         # We require message_content intents to read user messages
         intents = discord.Intents.default()
         intents.message_content = True
@@ -55,6 +55,7 @@ class DanddobotClient(discord.Client):
         self.llm_client = llm_client
         self.persona_file_path = persona_file_path
         self.admin_channel_id = admin_channel_id
+        self.log_channel_id = log_channel_id
 
         # Load the registered channels list from config file
         self.registered_channels: Dict[int, str] = load_registered_channels(channels_file_path)
@@ -88,7 +89,8 @@ class DanddobotClient(discord.Client):
         logger.info(
             f"DanddobotClient initialized. Active channel: {self.active_channel_id}, "
             f"Registered channels: {list(self.registered_channels.keys())}, "
-            f"Admin channel: {self.admin_channel_id}"
+            f"Admin channel: {self.admin_channel_id}, "
+            f"Log channel: {self.log_channel_id}"
         )
 
     async def update_active_channel(self, new_channel_id: int):
@@ -114,25 +116,7 @@ class DanddobotClient(discord.Client):
     async def on_ready(self):
         logger.info(f"Bot logged in as {self.user} (ID: {self.user.id})")
         
-        # 1. Clean up existing slash commands (delete from all guilds and globally)
-        logger.info("Cleaning up registered slash commands...")
-        try:
-            self.tree.clear_commands(guild=None)
-            await self.tree.sync(guild=None)
-            logger.info("Cleared and synced global slash commands.")
-            
-            for guild in self.guilds:
-                try:
-                    self.tree.clear_commands(guild=guild)
-                    await self.tree.sync(guild=guild)
-                    logger.info(f"Cleared and synced slash commands for guild: {guild.name} (ID: {guild.id})")
-                except Exception as guild_err:
-                    logger.error(f"Failed to clear commands for guild {guild.name}: {guild_err}")
-            logger.info("Slash command cleanup completed successfully.")
-        except Exception as e:
-            logger.error(f"Failed to complete slash command cleanup: {e}")
-
-        # 2. Setup Persistent View and Send/Update Admin Dashboard
+        # 1. Setup Persistent View and Send/Update Admin Dashboard
         from src.admin_panel import AdminDashboardView, build_dashboard_embed
         
         # Register persistent view for button interaction handling
@@ -164,6 +148,16 @@ class DanddobotClient(discord.Client):
                 logger.warning(f"Could not find admin channel with ID: {self.admin_channel_id}. Is the bot member of that server?")
         else:
             logger.info("Admin channel ID not configured. Dashboard is disabled.")
+
+        # 3. Setup Log Channel Status Verification
+        if self.log_channel_id:
+            log_channel = self.get_channel(self.log_channel_id)
+            if log_channel:
+                logger.info(f"Log channel configured and verified: {log_channel.name} (ID: {self.log_channel_id})")
+            else:
+                logger.warning(f"Could not find log channel with ID: {self.log_channel_id}. Is the bot member of that server?")
+        else:
+            logger.info("Log channel ID not configured. System errors will be sent to the active chat channel.")
 
         logger.info("Bot is active and listening for messages.")
 
@@ -232,21 +226,57 @@ class DanddobotClient(discord.Client):
         system_prompt = self.load_persona()
 
         # Display typing status to the user while LLM generates the response
+        llm_error = None
+        response = None
         async with message.channel.typing():
             try:
                 # Call the local LLM via the adapted client
                 response = await self.llm_client.generate_response(user_content, system_prompt)
             except Exception as e:
                 logger.error(f"Failed to generate LLM response: {e}")
-                response = "❌ 답변을 생성하는 동안 오류가 발생했습니다."
+                llm_error = e
 
-        # Send the response (handling Discord's 2000 character limit)
-        chunks = self.split_message(response)
-        for chunk in chunks:
-            try:
-                await message.reply(chunk)
-            except Exception as e:
-                logger.error(f"Failed to send message chunk: {e}")
+        if llm_error is not None:
+            log_channel = None
+            if self.log_channel_id:
+                log_channel = self.get_channel(self.log_channel_id)
+                if not log_channel:
+                    try:
+                        log_channel = await self.fetch_channel(self.log_channel_id)
+                    except Exception as fetch_err:
+                        logger.error(f"Failed to fetch log channel {self.log_channel_id}: {fetch_err}")
+
+            if log_channel:
+                error_msg = (
+                    f"❌ **챗봇 시스템 오류 발생**\n"
+                    f"• **채널**: {message.channel.mention} (ID: {message.channel.id})\n"
+                    f"• **사용자**: {message.author.mention} (ID: {message.author.id})\n"
+                    f"• **메시지 내용**: {user_content[:100]}\n"
+                    f"• **오류 내용**: `{llm_error}`"
+                )
+                try:
+                    await log_channel.send(error_msg)
+                except Exception as send_err:
+                    logger.error(f"Failed to send error message to log channel: {send_err}")
+                    # Fallback: if sending to log channel failed, send to active channel
+                    try:
+                        await message.reply("❌ 답변을 생성하는 동안 오류가 발생했습니다.")
+                    except Exception as reply_err:
+                        logger.error(f"Failed to send fallback reply: {reply_err}")
+            else:
+                # No log channel, or log channel could not be resolved -> send to active conversation channel
+                try:
+                    await message.reply("❌ 답변을 생성하는 동안 오류가 발생했습니다.")
+                except Exception as reply_err:
+                    logger.error(f"Failed to send reply to active channel: {reply_err}")
+        else:
+            # Send the response (handling Discord's 2000 character limit)
+            chunks = self.split_message(response)
+            for chunk in chunks:
+                try:
+                    await message.reply(chunk)
+                except Exception as e:
+                    logger.error(f"Failed to send message chunk: {e}")
 
     @staticmethod
     def split_message(text: str, limit: int = 2000) -> List[str]:
