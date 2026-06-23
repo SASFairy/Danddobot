@@ -334,14 +334,14 @@ class DanddobotClient(discord.Client):
 
                 # Send the response (handling Discord's 2000 character limit)
                 chunks = self.split_message(response)
-                for chunk in chunks:
+                for idx, chunk in enumerate(chunks):
                     try:
-                        if has_newer_messages:
+                        if has_newer_messages and idx == 0:
                             await message.reply(chunk)
                         else:
                             await message.channel.send(chunk)
                     except Exception as e:
-                        logger.error(f"Failed to send message chunk: {e}")
+                        logger.error(f"Failed to send message chunk {idx}: {e}")
 
     @staticmethod
     def split_message(text: str, limit: int = 2000) -> List[str]:
