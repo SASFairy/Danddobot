@@ -37,7 +37,9 @@ def build_dashboard_embed(client: discord.Client, status_msg: str = "정상 작�
     else:
         persona_status = "❌ 파일 누락됨"
 
-    memory_status = "🟢 활성화" if getattr(client, "use_memory", False) else "🔴 비활성화"
+    max_mem = getattr(client, "max_memory_length", 10)
+    turns = max_mem // 2
+    memory_status = f"🟢 활성화 (최대 {max_mem}개 / {turns}회 대화)" if getattr(client, "use_memory", False) else "🔴 비활성화"
 
     embed = discord.Embed(
         title="🤖 Danddobot 관리 대시보드",
@@ -165,6 +167,64 @@ class LlmTimeoutEditModal(ui.Modal, title="⏱️ LLM 타임아웃 시간 설정
         await interaction.response.send_message(f"✅ LLM 타임아웃이 **{timeout_str}**(으)로 설정되었습니다!", ephemeral=True)
 
 
+class MemoryLimitEditModal(ui.Modal, title="🔢 대화 기억 용량 설정"):
+    """
+    Discord Modal to edit the maximum memory context length (message count).
+    """
+    def __init__(self, client: discord.Client):
+        super().__init__()
+        self.client = client
+        
+        current_limit = getattr(client, "max_memory_length", 10)
+        
+        self.limit_input = ui.TextInput(
+            label="기억할 최대 대화 메시지 수 (2~100 사이 입력)",
+            placeholder="기본값: 10 (최근 5회 대화 기억)",
+            default=str(current_limit),
+            required=True,
+            max_length=3
+        )
+        self.add_item(self.limit_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        client = self.client
+        val_str = self.limit_input.value.strip()
+        
+        try:
+            new_val = int(val_str)
+            if new_val < 2 or new_val > 100:
+                await interaction.response.send_message("❌ 대화 기억 용량은 2에서 100 사이의 숫자여야 합니다.", ephemeral=True)
+                return
+        except ValueError:
+            await interaction.response.send_message("❌ 올바른 정수를 입력해 주세요.", ephemeral=True)
+            return
+
+        client.max_memory_length = new_val
+
+        # Persist to config/state.json
+        state_path = "config/state.json"
+        try:
+            os.makedirs(os.path.dirname(state_path), exist_ok=True)
+            state = {}
+            if os.path.exists(state_path):
+                with open(state_path, "r", encoding="utf-8") as f:
+                    state = json.load(f)
+            state["max_memory_length"] = new_val
+            with open(state_path, "w", encoding="utf-8") as f:
+                json.dump(state, f, indent=4)
+            logger.info(f"Persisted max_memory_length: {new_val} via admin dashboard")
+        except Exception as e:
+            logger.error(f"Failed to write state file for memory limit: {e}")
+
+        # Rebuild dashboard view & edit message
+        from src.admin_panel import build_dashboard_embed, AdminDashboardView
+        embed = build_dashboard_embed(client, status_msg=f"기억 용량 변경 완료: {new_val}개")
+        new_view = AdminDashboardView(client)
+        await interaction.message.edit(embed=embed, view=new_view)
+        
+        await interaction.response.send_message(f"✅ 대화 기억 용량이 최대 **{new_val}개** (최근 {new_val // 2}회 대화)로 설정되었습니다!", ephemeral=True)
+
+
 class AdminChannelSelect(ui.Select):
     """
     Dropdown menu listing only the pre-registered channels from config/channels.txt.
@@ -257,70 +317,19 @@ class AdminDashboardView(ui.View):
         self.toggle_memory_btn.label = "🧠 대화 기억: On" if use_mem else "🧠 대화 기억: Off"
         self.toggle_memory_btn.style = discord.ButtonStyle.success if use_mem else discord.ButtonStyle.secondary
 
-    @ui.button(label="✏️ 페르소나 편집", style=discord.ButtonStyle.success, custom_id="danddobot_admin_edit")
+    @ui.button(label="✏️ 페르소나 편집", style=discord.ButtonStyle.success, custom_id="danddobot_admin_edit", row=0)
     async def edit_persona_btn(self, interaction: discord.Interaction, button: ui.Button):
         logger.info(f"Edit persona modal requested by user {interaction.user} in {interaction.channel}")
         modal = PersonaEditModal(self.client)
         await interaction.response.send_modal(modal)
 
-    @ui.button(label="⏱️ 타임아웃 설정", style=discord.ButtonStyle.primary, custom_id="danddobot_admin_timeout")
+    @ui.button(label="⏱️ 타임아웃 설정", style=discord.ButtonStyle.primary, custom_id="danddobot_admin_timeout", row=0)
     async def edit_timeout_btn(self, interaction: discord.Interaction, button: ui.Button):
         logger.info(f"Edit timeout modal requested by user {interaction.user} in {interaction.channel}")
         modal = LlmTimeoutEditModal(self.client)
         await interaction.response.send_modal(modal)
 
-    @ui.button(label="🧠 대화 기억: Off", style=discord.ButtonStyle.secondary, custom_id="danddobot_admin_toggle_memory")
-    async def toggle_memory_btn(self, interaction: discord.Interaction, button: ui.Button):
-        logger.info(f"Toggle memory requested by user {interaction.user}")
-        new_state = await self.client.toggle_memory()
-        state_str = "활성화" if new_state else "비활성화"
-        
-        # Update button text and style dynamically
-        button.label = "🧠 대화 기억: On" if new_state else "🧠 대화 기억: Off"
-        button.style = discord.ButtonStyle.success if new_state else discord.ButtonStyle.secondary
-        
-        # Update dashboard embed and re-render the view components
-        embed = build_dashboard_embed(self.client, status_msg=f"대화 기억 {state_str}")
-        await interaction.message.edit(embed=embed, view=self)
-        await interaction.response.send_message(f"✅ 대화 기억 기능이 **{state_str}** 되었습니다!", ephemeral=True)
-
-    @ui.button(label="📋 기억 내역 조회", style=discord.ButtonStyle.secondary, custom_id="danddobot_admin_view_memory")
-    async def view_memory_btn(self, interaction: discord.Interaction, button: ui.Button):
-        logger.info(f"Memory history lookup requested by user {interaction.user}")
-        
-        histories = getattr(self.client, "channel_history", {})
-        if not histories or all(not msgs for msgs in histories.values()):
-            await interaction.response.send_message(
-                "🧠 **현재 저장된 대화 기억(Context Memory)이 비어 있습니다.**",
-                ephemeral=True
-            )
-            return
-
-        report_lines = ["🧠 **Danddobot 실시간 대화 기억 내역**\n"]
-        for channel_id, messages in histories.items():
-            if not messages:
-                continue
-            channel_name = f"<#{channel_id}>"
-            report_lines.append(f"📍 **채널**: {channel_name} (ID: {channel_id})")
-            
-            for msg in messages:
-                role_label = "👤 **User**" if msg["role"] == "user" else "🤖 **Bot**"
-                content = msg["content"]
-                # Limit the lines of content if too long
-                if len(content) > 100:
-                    content = content[:100] + "..."
-                # Escape markdown formatting inside content to prevent mess
-                content_escaped = content.replace("`", "'").replace("\n", " ")
-                report_lines.append(f"  • {role_label}: `{content_escaped}`")
-            report_lines.append("") # Spacer line
-
-        report_text = "\n".join(report_lines)
-        if len(report_text) > 2000:
-            report_text = report_text[:1990] + "\n...(이하 생략)..."
-
-        await interaction.response.send_message(content=report_text, ephemeral=True)
-
-    @ui.button(label="🩺 시스템 진단", style=discord.ButtonStyle.secondary, custom_id="danddobot_admin_diagnose")
+    @ui.button(label="🩺 시스템 진단", style=discord.ButtonStyle.secondary, custom_id="danddobot_admin_diagnose", row=0)
     async def diagnose_system_btn(self, interaction: discord.Interaction, button: ui.Button):
         logger.info(f"Diagnostics requested by user {interaction.user}")
         await interaction.response.defer(ephemeral=True)
@@ -360,3 +369,60 @@ class AdminDashboardView(ui.View):
         )
         
         await interaction.followup.send(content=diagnostic_report, ephemeral=True)
+
+    @ui.button(label="🧠 대화 기억: Off", style=discord.ButtonStyle.secondary, custom_id="danddobot_admin_toggle_memory", row=1)
+    async def toggle_memory_btn(self, interaction: discord.Interaction, button: ui.Button):
+        logger.info(f"Toggle memory requested by user {interaction.user}")
+        new_state = await self.client.toggle_memory()
+        state_str = "활성화" if new_state else "비활성화"
+        
+        # Update button text and style dynamically
+        button.label = "🧠 대화 기억: On" if new_state else "🧠 대화 기억: Off"
+        button.style = discord.ButtonStyle.success if new_state else discord.ButtonStyle.secondary
+        
+        # Update dashboard embed and re-render the view components
+        embed = build_dashboard_embed(self.client, status_msg=f"대화 기억 {state_str}")
+        await interaction.message.edit(embed=embed, view=self)
+        await interaction.response.send_message(f"✅ 대화 기억 기능이 **{state_str}** 되었습니다!", ephemeral=True)
+
+    @ui.button(label="🔢 기억 용량 설정", style=discord.ButtonStyle.primary, custom_id="danddobot_admin_memory_limit", row=1)
+    async def edit_memory_limit_btn(self, interaction: discord.Interaction, button: ui.Button):
+        logger.info(f"Edit memory limit modal requested by user {interaction.user} in {interaction.channel}")
+        modal = MemoryLimitEditModal(self.client)
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="📋 기억 내역 조회", style=discord.ButtonStyle.secondary, custom_id="danddobot_admin_view_memory", row=1)
+    async def view_memory_btn(self, interaction: discord.Interaction, button: ui.Button):
+        logger.info(f"Memory history lookup requested by user {interaction.user}")
+        
+        histories = getattr(self.client, "channel_history", {})
+        if not histories or all(not msgs for msgs in histories.values()):
+            await interaction.response.send_message(
+                "🧠 **현재 저장된 대화 기억(Context Memory)이 비어 있습니다.**",
+                ephemeral=True
+            )
+            return
+
+        report_lines = ["🧠 **Danddobot 실시간 대화 기억 내역**\n"]
+        for channel_id, messages in histories.items():
+            if not messages:
+                continue
+            channel_name = f"<#{channel_id}>"
+            report_lines.append(f"📍 **채널**: {channel_name} (ID: {channel_id})")
+            
+            for msg in messages:
+                role_label = "👤 **User**" if msg["role"] == "user" else "🤖 **Bot**"
+                content = msg["content"]
+                # Limit the lines of content if too long
+                if len(content) > 100:
+                    content = content[:100] + "..."
+                # Escape markdown formatting inside content to prevent mess
+                content_escaped = content.replace("`", "'").replace("\n", " ")
+                report_lines.append(f"  • {role_label}: `{content_escaped}`")
+            report_lines.append("") # Spacer line
+
+        report_text = "\n".join(report_lines)
+        if len(report_text) > 2000:
+            report_text = report_text[:1990] + "\n...(이하 생략)..."
+
+        await interaction.response.send_message(content=report_text, ephemeral=True)

@@ -63,6 +63,7 @@ class DanddobotClient(discord.Client):
 
         # Initialize memory configurations and FIFO concurrency lock
         self.use_memory: bool = False
+        self.max_memory_length: int = 10
         self.channel_history: Dict[int, List[dict]] = {}
         self.lock = asyncio.Lock()
 
@@ -79,6 +80,8 @@ class DanddobotClient(discord.Client):
                         logger.info(f"Loaded persisted active_channel_id from state.json: {self.active_channel_id}")
                     self.use_memory = state.get("use_memory", False)
                     logger.info(f"Loaded persisted use_memory from state.json: {self.use_memory}")
+                    self.max_memory_length = state.get("max_memory_length", 10)
+                    logger.info(f"Loaded persisted max_memory_length from state.json: {self.max_memory_length}")
             except Exception as e:
                 logger.error(f"Failed to read state file: {e}")
 
@@ -319,9 +322,9 @@ class DanddobotClient(discord.Client):
                         self.channel_history[message.channel.id] = []
                     self.channel_history[message.channel.id].append({"role": "user", "content": user_content})
                     self.channel_history[message.channel.id].append({"role": "assistant", "content": response})
-                    # Cap the sliding history window at last 10 messages (5 turns)
-                    if len(self.channel_history[message.channel.id]) > 10:
-                        self.channel_history[message.channel.id] = self.channel_history[message.channel.id][-10:]
+                    # Cap the sliding history window at max memory length
+                    if len(self.channel_history[message.channel.id]) > self.max_memory_length:
+                        self.channel_history[message.channel.id] = self.channel_history[message.channel.id][-self.max_memory_length:]
 
                 # Check if there are any newer messages in the channel after our prompt message
                 has_newer_messages = False
