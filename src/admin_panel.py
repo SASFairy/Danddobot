@@ -284,6 +284,42 @@ class AdminDashboardView(ui.View):
         await interaction.message.edit(embed=embed, view=self)
         await interaction.response.send_message(f"✅ 대화 기억 기능이 **{state_str}** 되었습니다!", ephemeral=True)
 
+    @ui.button(label="📋 기억 내역 조회", style=discord.ButtonStyle.secondary, custom_id="danddobot_admin_view_memory")
+    async def view_memory_btn(self, interaction: discord.Interaction, button: ui.Button):
+        logger.info(f"Memory history lookup requested by user {interaction.user}")
+        
+        histories = getattr(self.client, "channel_history", {})
+        if not histories or all(not msgs for msgs in histories.values()):
+            await interaction.response.send_message(
+                "🧠 **현재 저장된 대화 기억(Context Memory)이 비어 있습니다.**",
+                ephemeral=True
+            )
+            return
+
+        report_lines = ["🧠 **Danddobot 실시간 대화 기억 내역**\n"]
+        for channel_id, messages in histories.items():
+            if not messages:
+                continue
+            channel_name = f"<#{channel_id}>"
+            report_lines.append(f"📍 **채널**: {channel_name} (ID: {channel_id})")
+            
+            for msg in messages:
+                role_label = "👤 **User**" if msg["role"] == "user" else "🤖 **Bot**"
+                content = msg["content"]
+                # Limit the lines of content if too long
+                if len(content) > 100:
+                    content = content[:100] + "..."
+                # Escape markdown formatting inside content to prevent mess
+                content_escaped = content.replace("`", "'").replace("\n", " ")
+                report_lines.append(f"  • {role_label}: `{content_escaped}`")
+            report_lines.append("") # Spacer line
+
+        report_text = "\n".join(report_lines)
+        if len(report_text) > 2000:
+            report_text = report_text[:1990] + "\n...(이하 생략)..."
+
+        await interaction.response.send_message(content=report_text, ephemeral=True)
+
     @ui.button(label="🩺 시스템 진단", style=discord.ButtonStyle.secondary, custom_id="danddobot_admin_diagnose")
     async def diagnose_system_btn(self, interaction: discord.Interaction, button: ui.Button):
         logger.info(f"Diagnostics requested by user {interaction.user}")
