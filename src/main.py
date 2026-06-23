@@ -39,6 +39,12 @@ def main():
     persona_file_path = os.getenv("PERSONA_FILE_PATH", "config/persona.txt")
     channels_file_path = os.getenv("CHANNELS_FILE_PATH", "config/channels.txt")
     
+    # Override LLM Model from State Manager if present
+    persisted_model = state_manager.get_value("llm_model")
+    if persisted_model:
+        llm_model = persisted_model
+        logger.info(f"Loaded persisted llm_model from StateManager: {llm_model}")
+    
     llm_timeout_raw = os.getenv("LLM_TIMEOUT")
     llm_timeout = 300.0
     if llm_timeout_raw and llm_timeout_raw.strip():

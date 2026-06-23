@@ -272,6 +272,64 @@ class AdminChannelSelect(ui.Select):
             )
 
 
+class AdminModelSelect(ui.Select):
+    """
+    Dropdown menu listing available models fetched from the LLM backend on startup.
+    Allows the admin to switch the active LLM model.
+    """
+    def __init__(self, client: discord.Client):
+        available_models: list[str] = getattr(client, "available_models", [])
+        current_model: str = "unknown"
+        if hasattr(client, "llm_client") and client.llm_client:
+            current_model = getattr(client.llm_client, "model", "unknown")
+
+        # Fallback if available_models is empty
+        if not available_models:
+            available_models = [current_model] if current_model != "unknown" else ["llama3"]
+
+        options = []
+        for model_name in available_models[:25]:  # Discord selects allow up to 25 options
+            options.append(discord.SelectOption(
+                label=model_name[:100],
+                value=model_name,
+                description=f"Model: {model_name}",
+                default=(model_name == current_model)
+            ))
+
+        super().__init__(
+            placeholder="🧠 LLM 모델 선택...",
+            options=options,
+            min_values=1,
+            max_values=1,
+            custom_id="danddobot_admin_model_select"
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        client = interaction.client
+        selected_model = self.values[0]
+
+        try:
+            await client.update_llm_model(selected_model)
+
+            # Rebuild dashboard with updated view so dropdown default is refreshed
+            from src.admin_panel import build_dashboard_embed, AdminDashboardView
+            embed = build_dashboard_embed(client, status_msg=f"LLM 모델 변경: {selected_model}")
+            new_view = AdminDashboardView(client)
+            await interaction.message.edit(embed=embed, view=new_view)
+
+            await interaction.response.send_message(
+                f"✅ LLM 모델이 **{selected_model}**(으)로 변경되었습니다!",
+                ephemeral=True
+            )
+            logger.info(f"LLM model switched to {selected_model} by {interaction.user}")
+        except Exception as e:
+            logger.error(f"Failed to change LLM model: {e}")
+            await interaction.response.send_message(
+                f"❌ LLM 모델 변경 중 오류가 발생했습니다: `{e}`",
+                ephemeral=True
+            )
+
+
 class AdminDashboardView(ui.View):
     """
     Interactive button view attached to the admin dashboard embed.
@@ -281,6 +339,8 @@ class AdminDashboardView(ui.View):
         self.client = client
         # Add the channel select dropdown menu to the view
         self.add_item(AdminChannelSelect(client))
+        # Add the model select dropdown menu to the view
+        self.add_item(AdminModelSelect(client))
 
         # Set dynamic initial button label and style based on state
         use_mem = getattr(client, "use_memory", False)

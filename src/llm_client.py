@@ -15,6 +15,12 @@ class BaseLLMClient:
         """
         raise NotImplementedError("generate_response must be implemented by subclasses.")
 
+    async def get_available_models(self) -> list[str]:
+        """
+        Retrieves the list of available models from the LLM provider.
+        """
+        return []
+
     async def close(self):
         """
         Closes any long-lived persistent HTTP connection pools.
@@ -76,6 +82,24 @@ class OllamaClient(BaseLLMClient):
         except Exception as e:
             logger.error(f"Unexpected error in Ollama client: {e}")
             raise RuntimeError(f"예기치 못한 오류가 발생했습니다. (Error: {e})") from e
+
+    async def get_available_models(self) -> list[str]:
+        """
+        Fetches available models from Ollama's /api/tags endpoint.
+        """
+        endpoint = f"{self.api_url}/api/tags"
+        try:
+            client = await self._get_client()
+            logger.debug(f"Fetching Ollama models from {endpoint}")
+            response = await client.get(endpoint, timeout=10.0)
+            response.raise_for_status()
+            result = response.json()
+            models = [model.get("name") for model in result.get("models", []) if model.get("name")]
+            logger.info(f"Fetched available Ollama models: {models}")
+            return models
+        except Exception as e:
+            logger.error(f"Failed to fetch available models from Ollama: {e}")
+            return []
 
     async def close(self):
         """Disposes of the long-lived client connection pool gracefully."""
@@ -142,6 +166,24 @@ class OpenAICompatibleClient(BaseLLMClient):
         except Exception as e:
             logger.error(f"Unexpected error in OpenAI-compatible client: {e}")
             raise RuntimeError(f"예기치 못한 오류가 발생했습니다. (Error: {e})") from e
+
+    async def get_available_models(self) -> list[str]:
+        """
+        Fetches available models from OpenAI-compatible /v1/models endpoint.
+        """
+        endpoint = f"{self.api_url}/v1/models"
+        try:
+            client = await self._get_client()
+            logger.debug(f"Fetching {self.provider_name} models from {endpoint}")
+            response = await client.get(endpoint, timeout=10.0)
+            response.raise_for_status()
+            result = response.json()
+            models = [model.get("id") for model in result.get("data", []) if model.get("id")]
+            logger.info(f"Fetched available {self.provider_name} models: {models}")
+            return models
+        except Exception as e:
+            logger.error(f"Failed to fetch available models from {self.provider_name}: {e}")
+            return []
 
     async def close(self):
         """Disposes of the long-lived client connection pool gracefully."""

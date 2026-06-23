@@ -89,6 +89,10 @@ class DanddobotClient(discord.Client):
         # Keep legacy alias for backward compatibility
         self.channel_id = self.active_channel_id
 
+        # Initialize available models list with currently loaded model as default
+        current_model = getattr(self.llm_client, "model", "unknown")
+        self.available_models: List[str] = [current_model] if current_model != "unknown" else []
+
         # Initialize CommandTree for application commands (slash commands)
         self.tree = discord.app_commands.CommandTree(self)
 
@@ -131,6 +135,13 @@ class DanddobotClient(discord.Client):
         await self.state_manager.set_value("llm_timeout", timeout)
         logger.info(f"LLM Client Timeout updated and persisted: {timeout}")
 
+    async def update_llm_model(self, new_model: str):
+        """Updates the LLM client model and persists the change using StateManager."""
+        if hasattr(self, "llm_client") and self.llm_client:
+            self.llm_client.model = new_model
+        await self.state_manager.set_value("llm_model", new_model)
+        logger.info(f"LLM model updated and persisted: {new_model}")
+
     def reload_channels(self):
         """Reload the registered channels list from the config file."""
         self.registered_channels = load_registered_channels(self.channels_file_path)
@@ -138,6 +149,18 @@ class DanddobotClient(discord.Client):
 
     async def on_ready(self):
         logger.info(f"Bot logged in as {self.user} (ID: {self.user.id})")
+        
+        # Fetch available models from backend on startup
+        logger.info("Fetching available LLM models from backend...")
+        try:
+            fetched_models = await self.llm_client.get_available_models()
+            if fetched_models:
+                self.available_models = fetched_models
+                logger.info(f"Successfully loaded available models: {self.available_models}")
+            else:
+                logger.warning("Backend returned empty model list. Fallback to currently active model.")
+        except Exception as e:
+            logger.error(f"Failed to fetch available models on startup: {e}")
         
         # 1. Setup Persistent View and Send/Update Admin Dashboard
         from src.admin_panel import AdminDashboardView, build_dashboard_embed
