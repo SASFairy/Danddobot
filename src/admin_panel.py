@@ -195,6 +195,75 @@ class MemoryLimitEditModal(ui.Modal, title="🔢 대화 기억 용량 설정"):
         await interaction.response.send_message(f"✅ 대화 기억 용량이 최대 **{new_val}개** (최근 {new_val // 2}회 대화)로 설정되었습니다!", ephemeral=True)
 
 
+class AdminMessageSendModal(ui.Modal, title="📣 활성 채널로 메시지 전송"):
+    """
+    Discord Modal to send an arbitrary message as Danddobot to the currently active channel.
+    """
+    def __init__(self, client: discord.Client):
+        super().__init__()
+        self.client = client
+        
+        # Get active channel name
+        active_id = getattr(client, "active_channel_id", None)
+        active_name = "미설정"
+        if active_id:
+            discord_channel = client.get_channel(active_id)
+            if discord_channel:
+                active_name = f"#{discord_channel.name}"
+            else:
+                registered = getattr(client, "registered_channels", {})
+                active_name = registered.get(active_id, f"채널 {active_id}")
+                
+        self.message_input = ui.TextInput(
+            label=f"전송할 메시지 입력 (대상: {active_name})",
+            style=discord.TextStyle.paragraph,
+            placeholder="활성 대화 채널로 보낼 메시지를 입력하세요...",
+            required=True,
+            max_length=2000
+        )
+        self.add_item(self.message_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        client = self.client
+        active_id = getattr(client, "active_channel_id", None)
+        
+        if not active_id:
+            await interaction.response.send_message("❌ 활성 대화 채널이 설정되어 있지 않습니다.", ephemeral=True)
+            return
+            
+        channel = client.get_channel(active_id)
+        if not channel:
+            await interaction.response.send_message(f"❌ 활성 대화 채널(ID: {active_id})을 찾을 수 없거나 봇이 접근할 수 없습니다.", ephemeral=True)
+            return
+            
+        content = self.message_input.value
+        
+        try:
+            # Send the arbitrary message to the active channel
+            await channel.send(content)
+            logger.info(f"Admin {interaction.user} (ID: {interaction.user.id}) sent arbitrary message to active channel {active_id}: {content}")
+            
+            # Add to history if memory is active
+            if getattr(client, "use_memory", False):
+                if active_id not in client.channel_history:
+                    client.channel_history[active_id] = []
+                client.channel_history[active_id].append({"role": "assistant", "content": content})
+                # Trim if needed
+                max_len = getattr(client, "max_memory_length", 10)
+                if len(client.channel_history[active_id]) > max_len:
+                    client.channel_history[active_id] = client.channel_history[active_id][-max_len:]
+            
+            # Rebuild dashboard view & edit message to update status msg
+            from src.admin_panel import build_dashboard_embed, AdminDashboardView
+            embed = build_dashboard_embed(client, status_msg="메시지 대리 전송 완료")
+            await interaction.message.edit(embed=embed)
+            
+            await interaction.response.send_message(f"✅ 활성 채널({channel.mention})로 메시지가 성공적으로 전송되었습니다!", ephemeral=True)
+        except Exception as e:
+            logger.error(f"Failed to send arbitrary message to active channel: {e}")
+            await interaction.response.send_message(f"❌ 메시지 전송 중 오류가 발생했습니다: `{e}`", ephemeral=True)
+
+
 class AdminChannelSelect(ui.Select):
     """
     Dropdown menu listing only the pre-registered channels from config/channels.txt.
@@ -456,3 +525,9 @@ class AdminDashboardView(ui.View):
             report_text = report_text[:1990] + "\n...(이하 생략)..."
 
         await interaction.response.send_message(content=report_text, ephemeral=True)
+
+    @ui.button(label="📣 메시지 전송", style=discord.ButtonStyle.primary, custom_id="danddobot_admin_send_message", row=1)
+    async def send_message_btn(self, interaction: discord.Interaction, button: ui.Button):
+        logger.info(f"Arbitrary message send requested by user {interaction.user}")
+        modal = AdminMessageSendModal(self.client)
+        await interaction.response.send_modal(modal)
