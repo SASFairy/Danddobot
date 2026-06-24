@@ -39,6 +39,29 @@ def main():
     persona_file_path = os.getenv("PERSONA_FILE_PATH", "config/persona.txt")
     channels_file_path = os.getenv("CHANNELS_FILE_PATH", "config/channels.txt")
     
+    # Override LLM Provider from State Manager if present
+    persisted_provider = state_manager.get_value("llm_provider")
+    if persisted_provider:
+        llm_provider = persisted_provider
+        logger.info(f"Loaded persisted llm_provider from StateManager: {llm_provider}")
+        
+    # Override LLM API URL from State Manager if present
+    persisted_api_url = state_manager.get_value("llm_api_url")
+    if persisted_api_url:
+        llm_api_url = persisted_api_url
+        logger.info(f"Loaded persisted llm_api_url from StateManager: {llm_api_url}")
+
+    # Read LLM Engine-specific API URLs from .env
+    provider_urls = {}
+    for prov in ["OLLAMA", "OPENAI_COMPATIBLE", "LLAMA_CPP", "VLLM", "LM_STUDIO"]:
+        url = os.getenv(f"{prov}_API_URL")
+        if url and url.strip():
+            provider_urls[prov] = url.strip()
+            
+    # Ensure current provider and API URL is represented in provider_urls
+    if llm_provider not in provider_urls:
+        provider_urls[llm_provider] = llm_api_url
+    
     # Override LLM Model from State Manager if present
     persisted_model = state_manager.get_value("llm_model")
     if persisted_model:
@@ -103,14 +126,15 @@ def main():
         timeout=llm_timeout
     )
 
-    # 6. Initialize Discord Client, passing StateManager
+    # 6. Initialize Discord Client, passing StateManager and provider_urls
     bot = DanddobotClient(
         channels_file_path=channels_file_path,
         llm_client=llm_client,
         persona_file_path=persona_file_path,
         admin_channel_id=admin_channel_id,
         log_channel_id=log_channel_id,
-        state_manager=state_manager
+        state_manager=state_manager,
+        provider_urls=provider_urls
     )
 
     # 7. Run the Bot

@@ -301,7 +301,8 @@ class AdminChannelSelect(ui.Select):
             options=options,
             min_values=1,
             max_values=1,
-            custom_id="danddobot_admin_channel_select"
+            custom_id="danddobot_admin_channel_select",
+            row=2
         )
 
     async def callback(self, interaction: discord.Interaction):
@@ -341,6 +342,82 @@ class AdminChannelSelect(ui.Select):
             )
 
 
+class AdminProviderSelect(ui.Select):
+    """
+    Dropdown menu listing available LLM providers configured in the environment (.env).
+    Allows the admin to switch the active LLM provider dynamic and gracefully.
+    """
+    def __init__(self, client: discord.Client):
+        provider_urls: dict[str, str] = getattr(client, "provider_urls", {})
+        
+        # Determine currently active provider name
+        current_provider = "UNKNOWN"
+        if hasattr(client, "llm_client") and client.llm_client:
+            current_provider = getattr(client.llm_client, "provider_name", client.llm_client.__class__.__name__.replace("Client", "")).upper()
+
+        options = []
+        # provider_urls mapping has provider names as keys
+        for provider_name, url in provider_urls.items():
+            options.append(discord.SelectOption(
+                label=provider_name.upper()[:100],
+                value=provider_name.upper(),
+                description=f"URL: {url[:100]}",
+                default=(provider_name.upper() == current_provider)
+            ))
+
+        # Fallback if no provider URLs configured
+        if not options:
+            options.append(discord.SelectOption(
+                label="설정된 프로바이더 없음",
+                value="none",
+                description="환경 설정(.env)에 API URL이 설정되어 있는지 확인해 주세요."
+            ))
+
+        super().__init__(
+            placeholder="🧠 LLM 프로바이더 선택...",
+            options=options,
+            min_values=1,
+            max_values=1,
+            custom_id="danddobot_admin_provider_select",
+            row=3
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        if self.values[0] == "none":
+            await interaction.response.send_message(
+                "⚠️ 환경 변수에 설정된 다른 프로바이더가 없습니다.",
+                ephemeral=True
+            )
+            return
+
+        client = interaction.client
+        selected_provider = self.values[0]
+
+        try:
+            # We defer since updating LLM client (closing pool and re-opening) might take a second or two
+            await interaction.response.defer(ephemeral=True)
+
+            await client.update_llm_provider(selected_provider)
+
+            # Rebuild dashboard with updated view so dropdown default and model choices are refreshed
+            from src.admin_panel import build_dashboard_embed, AdminDashboardView
+            embed = build_dashboard_embed(client, status_msg=f"LLM 프로바이더 변경: {selected_provider}")
+            new_view = AdminDashboardView(client)
+            await interaction.message.edit(embed=embed, view=new_view)
+
+            await interaction.followup.send(
+                f"✅ LLM 프로바이더가 **{selected_provider}**(으)로 변경되었습니다!",
+                ephemeral=True
+            )
+            logger.info(f"LLM provider switched to {selected_provider} by {interaction.user}")
+        except Exception as e:
+            logger.error(f"Failed to change LLM provider: {e}")
+            await interaction.followup.send(
+                f"❌ LLM 프로바이더 변경 중 오류가 발생했습니다: `{e}`",
+                ephemeral=True
+            )
+
+
 class AdminModelSelect(ui.Select):
     """
     Dropdown menu listing available models fetched from the LLM backend on startup.
@@ -370,7 +447,8 @@ class AdminModelSelect(ui.Select):
             options=options,
             min_values=1,
             max_values=1,
-            custom_id="danddobot_admin_model_select"
+            custom_id="danddobot_admin_model_select",
+            row=4
         )
 
     async def callback(self, interaction: discord.Interaction):
@@ -408,6 +486,8 @@ class AdminDashboardView(ui.View):
         self.client = client
         # Add the channel select dropdown menu to the view
         self.add_item(AdminChannelSelect(client))
+        # Add the provider select dropdown menu to the view
+        self.add_item(AdminProviderSelect(client))
         # Add the model select dropdown menu to the view
         self.add_item(AdminModelSelect(client))
 

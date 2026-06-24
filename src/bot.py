@@ -46,7 +46,8 @@ class DanddobotClient(discord.Client):
     """
     def __init__(self, channels_file_path: str, llm_client: BaseLLMClient, persona_file_path: str,
                  state_manager: StateManager, admin_channel_id: Optional[int] = None, 
-                 log_channel_id: Optional[int] = None, *args, **kwargs):
+                 log_channel_id: Optional[int] = None, provider_urls: Optional[Dict[str, str]] = None,
+                 *args, **kwargs):
         # We require message_content intents to read user messages
         intents = discord.Intents.default()
         intents.message_content = True
@@ -59,6 +60,7 @@ class DanddobotClient(discord.Client):
         self.persona_file_path = persona_file_path
         self.admin_channel_id = admin_channel_id
         self.log_channel_id = log_channel_id
+        self.provider_urls = provider_urls if provider_urls is not None else {}
 
         # Centralized configurations cache
         self.state_manager = state_manager
@@ -141,6 +143,59 @@ class DanddobotClient(discord.Client):
             self.llm_client.model = new_model
         await self.state_manager.set_value("llm_model", new_model)
         logger.info(f"LLM model updated and persisted: {new_model}")
+
+    async def update_llm_provider(self, new_provider: str):
+        """Gracefully updates the LLM provider, re-instantiating the LLM Client using the pre-configured URL."""
+        new_provider_upper = new_provider.upper()
+        new_api_url = self.provider_urls.get(new_provider_upper)
+        if not new_api_url:
+            raise ValueError(f"Provider {new_provider_upper} has no configured API URL in environment variables.")
+
+        old_client = self.llm_client
+
+        # 1. Close old client's connection pool
+        if old_client:
+            try:
+                await old_client.close()
+                logger.info("Successfully closed old LLM client connection pool.")
+            except Exception as e:
+                logger.error(f"Error while closing old LLM client: {e}")
+
+        # 2. Get current model & timeout
+        current_model = getattr(old_client, "model", "llama3")
+        current_timeout = getattr(old_client, "timeout", 300.0)
+
+        # 3. Instantiate new client using factory
+        from src.llm_client import LLMClientFactory
+        new_client = LLMClientFactory.get_client(
+            provider=new_provider_upper,
+            api_url=new_api_url,
+            model=current_model,
+            timeout=current_timeout
+        )
+        self.llm_client = new_client
+
+        # 4. Fetch available models for the new client
+        try:
+            fetched_models = await new_client.get_available_models()
+            if fetched_models:
+                self.available_models = fetched_models
+                # If current model is not in fetched models, switch to first available
+                if current_model not in fetched_models:
+                    new_model = fetched_models[0]
+                    self.llm_client.model = new_model
+                    await self.state_manager.set_value("llm_model", new_model)
+                    logger.info(f"Model auto-swapped to {new_model} because current model wasn't found in new provider.")
+            else:
+                self.available_models = [current_model]
+        except Exception as e:
+            logger.error(f"Failed to fetch models for new provider: {e}")
+            self.available_models = [current_model]
+
+        # 5. Persist provider and URL in StateManager
+        await self.state_manager.set_value("llm_provider", new_provider_upper)
+        await self.state_manager.set_value("llm_api_url", new_api_url)
+        logger.info(f"LLM Provider updated and persisted: {new_provider_upper} with URL {new_api_url}")
 
     def reload_channels(self):
         """Reload the registered channels list from the config file."""
