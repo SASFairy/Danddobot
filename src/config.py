@@ -77,6 +77,12 @@ class AppConfig:
             self.llm_timeout = persisted_timeout
             logger.info(f"Loaded persisted llm_timeout from StateManager: {self.llm_timeout} seconds")
 
+        # Load LLM Hyperparameters from State Manager
+        self.llm_temperature = state_manager.get_value("llm_temperature")
+        self.llm_max_tokens = state_manager.get_value("llm_max_tokens")
+        self.llm_repeat_penalty = state_manager.get_value("llm_repeat_penalty")
+        logger.info(f"Loaded hyperparameters from StateManager: Temperature={self.llm_temperature}, MaxTokens={self.llm_max_tokens}, RepeatPenalty={self.llm_repeat_penalty}")
+
         # Read Admin Channel Configuration
         admin_channel_id_raw = os.getenv("ADMIN_CHANNEL_ID")
         self.admin_channel_id: Optional[int] = None

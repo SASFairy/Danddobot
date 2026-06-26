@@ -154,6 +154,34 @@ class DanddobotClient(discord.Client):
         await self.state_manager.set_value("llm_model", new_model)
         logger.info(f"LLM model updated and persisted: {new_model}")
 
+    async def update_llm_parameters(self, temperature: Optional[float], max_tokens: Optional[int], repeat_penalty: Optional[float]):
+        """
+        Dynamically updates the LLM generation hyperparameters and persists them using StateManager.
+        """
+        if hasattr(self, "llm_client") and self.llm_client:
+            self.llm_client.temperature = temperature
+            self.llm_client.max_tokens = max_tokens
+            self.llm_client.repeat_penalty = repeat_penalty
+        
+        await self.state_manager.set_value("llm_temperature", temperature)
+        await self.state_manager.set_value("llm_max_tokens", max_tokens)
+        await self.state_manager.set_value("llm_repeat_penalty", repeat_penalty)
+        logger.info(f"LLM parameters updated and persisted: Temperature={temperature}, MaxTokens={max_tokens}, RepeatPenalty={repeat_penalty}")
+
+    async def reset_llm_parameters(self):
+        """
+        Resets all LLM generation hyperparameters to None (forcing model-native defaults) and persists them using StateManager.
+        """
+        if hasattr(self, "llm_client") and self.llm_client:
+            self.llm_client.temperature = None
+            self.llm_client.max_tokens = None
+            self.llm_client.repeat_penalty = None
+        
+        await self.state_manager.set_value("llm_temperature", None)
+        await self.state_manager.set_value("llm_max_tokens", None)
+        await self.state_manager.set_value("llm_repeat_penalty", None)
+        logger.info("LLM parameters reset to model defaults and persisted.")
+
     async def update_llm_provider(self, new_provider: str):
         """Gracefully updates the LLM provider, re-instantiating the LLM Client using the pre-configured URL."""
         new_provider_upper = new_provider.upper()
@@ -181,7 +209,10 @@ class DanddobotClient(discord.Client):
             provider=new_provider_upper,
             api_url=new_api_url,
             model=current_model,
-            timeout=current_timeout
+            timeout=current_timeout,
+            temperature=getattr(old_client, "temperature", None),
+            max_tokens=getattr(old_client, "max_tokens", None),
+            repeat_penalty=getattr(old_client, "repeat_penalty", None)
         )
         self.llm_client = new_client
 

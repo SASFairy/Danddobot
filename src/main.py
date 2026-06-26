@@ -38,7 +38,10 @@ def main():
         provider=config.llm_provider,
         api_url=config.llm_api_url,
         model=config.llm_model,
-        timeout=config.llm_timeout
+        timeout=config.llm_timeout,
+        temperature=config.llm_temperature,
+        max_tokens=config.llm_max_tokens,
+        repeat_penalty=config.llm_repeat_penalty
     )
 
     # 6. Initialize Discord Client
