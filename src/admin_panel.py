@@ -30,6 +30,10 @@ def build_dashboard_embed(client: discord.Client, status_msg: str = "정상 작�
         max_tokens_str = "기본값" if max_tokens_val is None else f"{max_tokens_val}"
         rep_penalty_val = getattr(client.llm_client, "repeat_penalty", None)
         rep_penalty_str = "기본값" if rep_penalty_val is None else f"{rep_penalty_val}"
+        top_p_val = getattr(client.llm_client, "top_p", None)
+        top_p_str = "기본값" if top_p_val is None else f"{top_p_val}"
+        top_k_val = getattr(client.llm_client, "top_k", None)
+        top_k_str = "기본값" if top_k_val is None else f"{top_k_val}"
         
         llm_info = (
             f"**Provider**: `{provider}`\n"
@@ -37,7 +41,9 @@ def build_dashboard_embed(client: discord.Client, status_msg: str = "정상 작�
             f"**Timeout**: `{timeout_str}`\n"
             f"**Temperature**: `{temp_str}`\n"
             f"**Max Tokens**: `{max_tokens_str}`\n"
-            f"**Repeat Penalty**: `{rep_penalty_str}`"
+            f"**Repeat Penalty**: `{rep_penalty_str}`\n"
+            f"**Top-P**: `{top_p_str}`\n"
+            f"**Top-K**: `{top_k_str}`"
         )
 
     persona_path = getattr(client, "persona_file_path", "config/persona.txt")
@@ -226,6 +232,8 @@ class LlmParametersEditModal(ui.Modal, title="⚙️ LLM 생성 옵션(하이퍼
         current_temp = getattr(getattr(client, "llm_client", None), "temperature", None)
         current_max_tokens = getattr(getattr(client, "llm_client", None), "max_tokens", None)
         current_repeat_penalty = getattr(getattr(client, "llm_client", None), "repeat_penalty", None)
+        current_top_p = getattr(getattr(client, "llm_client", None), "top_p", None)
+        current_top_k = getattr(getattr(client, "llm_client", None), "top_k", None)
         
         self.temp_input = ui.TextInput(
             label="온도 (Temperature, 0.0 ~ 2.0 / 빈칸시 기본값)",
@@ -248,10 +256,26 @@ class LlmParametersEditModal(ui.Modal, title="⚙️ LLM 생성 옵션(하이퍼
             required=False,
             max_length=5
         )
+        self.top_p_input = ui.TextInput(
+            label="Top-P (Nucleus Sampling, 0.0 ~ 1.0 / 빈칸시 기본값)",
+            placeholder="예: 0.9 (낮을수록 상위 확률 단어만 선택)",
+            default="" if current_top_p is None else str(current_top_p),
+            required=False,
+            max_length=5
+        )
+        self.top_k_input = ui.TextInput(
+            label="Top-K (Candidates count, 1 이상 정수 / 빈칸시 기본값)",
+            placeholder="예: 40 (높을수록 더 다양한 어휘 탐색)",
+            default="" if current_top_k is None else str(current_top_k),
+            required=False,
+            max_length=5
+        )
         
         self.add_item(self.temp_input)
         self.add_item(self.max_tokens_input)
         self.add_item(self.repeat_penalty_input)
+        self.add_item(self.top_p_input)
+        self.add_item(self.top_k_input)
 
     async def on_submit(self, interaction: discord.Interaction):
         client = self.client
@@ -259,6 +283,8 @@ class LlmParametersEditModal(ui.Modal, title="⚙️ LLM 생성 옵션(하이퍼
         temp_val = None
         max_tokens_val = None
         rep_penalty_val = None
+        top_p_val = None
+        top_k_val = None
         
         # 1. Parse Temperature
         temp_str = self.temp_input.value.strip()
@@ -295,12 +321,38 @@ class LlmParametersEditModal(ui.Modal, title="⚙️ LLM 생성 옵션(하이퍼
             except ValueError:
                 await interaction.response.send_message("❌ 반복 패널티는 올바른 실수여야 합니다.", ephemeral=True)
                 return
+
+        # 4. Parse Top-P
+        top_p_str = self.top_p_input.value.strip()
+        if top_p_str:
+            try:
+                top_p_val = float(top_p_str)
+                if top_p_val < 0.0 or top_p_val > 1.0:
+                    await interaction.response.send_message("❌ Top-P는 0.0에서 1.0 사이의 숫자여야 합니다.", ephemeral=True)
+                    return
+            except ValueError:
+                await interaction.response.send_message("❌ Top-P는 올바른 실수여야 합니다.", ephemeral=True)
+                return
+                
+        # 5. Parse Top-K
+        top_k_str = self.top_k_input.value.strip()
+        if top_k_str:
+            try:
+                top_k_val = int(top_k_str)
+                if top_k_val <= 0:
+                    await interaction.response.send_message("❌ Top-K는 1 이상의 정수여야 합니다.", ephemeral=True)
+                    return
+            except ValueError:
+                await interaction.response.send_message("❌ Top-K는 올바른 정수여야 합니다.", ephemeral=True)
+                return
                 
         # Update and persist parameters
         await client.update_llm_parameters(
             temperature=temp_val,
             max_tokens=max_tokens_val,
-            repeat_penalty=rep_penalty_val
+            repeat_penalty=rep_penalty_val,
+            top_p=top_p_val,
+            top_k=top_k_val
         )
         
         # Rebuild dashboard view & edit message
@@ -314,6 +366,8 @@ class LlmParametersEditModal(ui.Modal, title="⚙️ LLM 생성 옵션(하이퍼
         status_lines.append(f"• **Temperature**: `{temp_val if temp_val is not None else '기본값'}`")
         status_lines.append(f"• **Max Tokens**: `{max_tokens_val if max_tokens_val is not None else '기본값'}`")
         status_lines.append(f"• **Repeat Penalty**: `{rep_penalty_val if rep_penalty_val is not None else '기본값'}`")
+        status_lines.append(f"• **Top-P**: `{top_p_val if top_p_val is not None else '기본값'}`")
+        status_lines.append(f"• **Top-K**: `{top_k_val if top_k_val is not None else '기본값'}`")
         status_summary = "\n".join(status_lines)
         
         await interaction.response.send_message(f"✅ LLM 생성 옵션이 성공적으로 변경되었습니다!\n{status_summary}", ephemeral=True)

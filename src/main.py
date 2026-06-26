@@ -41,7 +41,9 @@ def main():
         timeout=config.llm_timeout,
         temperature=config.llm_temperature,
         max_tokens=config.llm_max_tokens,
-        repeat_penalty=config.llm_repeat_penalty
+        repeat_penalty=config.llm_repeat_penalty,
+        top_p=config.llm_top_p,
+        top_k=config.llm_top_k
     )
 
     # 6. Initialize Discord Client

@@ -81,7 +81,9 @@ class AppConfig:
         self.llm_temperature = state_manager.get_value("llm_temperature")
         self.llm_max_tokens = state_manager.get_value("llm_max_tokens")
         self.llm_repeat_penalty = state_manager.get_value("llm_repeat_penalty")
-        logger.info(f"Loaded hyperparameters from StateManager: Temperature={self.llm_temperature}, MaxTokens={self.llm_max_tokens}, RepeatPenalty={self.llm_repeat_penalty}")
+        self.llm_top_p = state_manager.get_value("llm_top_p")
+        self.llm_top_k = state_manager.get_value("llm_top_k")
+        logger.info(f"Loaded hyperparameters from StateManager: Temperature={self.llm_temperature}, MaxTokens={self.llm_max_tokens}, RepeatPenalty={self.llm_repeat_penalty}, TopP={self.llm_top_p}, TopK={self.llm_top_k}")
 
         # Read Admin Channel Configuration
         admin_channel_id_raw = os.getenv("ADMIN_CHANNEL_ID")

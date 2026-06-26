@@ -154,7 +154,8 @@ class DanddobotClient(discord.Client):
         await self.state_manager.set_value("llm_model", new_model)
         logger.info(f"LLM model updated and persisted: {new_model}")
 
-    async def update_llm_parameters(self, temperature: Optional[float], max_tokens: Optional[int], repeat_penalty: Optional[float]):
+    async def update_llm_parameters(self, temperature: Optional[float], max_tokens: Optional[int], repeat_penalty: Optional[float],
+                                    top_p: Optional[float], top_k: Optional[int]):
         """
         Dynamically updates the LLM generation hyperparameters and persists them using StateManager.
         """
@@ -162,11 +163,15 @@ class DanddobotClient(discord.Client):
             self.llm_client.temperature = temperature
             self.llm_client.max_tokens = max_tokens
             self.llm_client.repeat_penalty = repeat_penalty
+            self.llm_client.top_p = top_p
+            self.llm_client.top_k = top_k
         
         await self.state_manager.set_value("llm_temperature", temperature)
         await self.state_manager.set_value("llm_max_tokens", max_tokens)
         await self.state_manager.set_value("llm_repeat_penalty", repeat_penalty)
-        logger.info(f"LLM parameters updated and persisted: Temperature={temperature}, MaxTokens={max_tokens}, RepeatPenalty={repeat_penalty}")
+        await self.state_manager.set_value("llm_top_p", top_p)
+        await self.state_manager.set_value("llm_top_k", top_k)
+        logger.info(f"LLM parameters updated and persisted: Temperature={temperature}, MaxTokens={max_tokens}, RepeatPenalty={repeat_penalty}, TopP={top_p}, TopK={top_k}")
 
     async def reset_llm_parameters(self):
         """
@@ -176,10 +181,14 @@ class DanddobotClient(discord.Client):
             self.llm_client.temperature = None
             self.llm_client.max_tokens = None
             self.llm_client.repeat_penalty = None
+            self.llm_client.top_p = None
+            self.llm_client.top_k = None
         
         await self.state_manager.set_value("llm_temperature", None)
         await self.state_manager.set_value("llm_max_tokens", None)
         await self.state_manager.set_value("llm_repeat_penalty", None)
+        await self.state_manager.set_value("llm_top_p", None)
+        await self.state_manager.set_value("llm_top_k", None)
         logger.info("LLM parameters reset to model defaults and persisted.")
 
     async def update_llm_provider(self, new_provider: str):
@@ -212,7 +221,9 @@ class DanddobotClient(discord.Client):
             timeout=current_timeout,
             temperature=getattr(old_client, "temperature", None),
             max_tokens=getattr(old_client, "max_tokens", None),
-            repeat_penalty=getattr(old_client, "repeat_penalty", None)
+            repeat_penalty=getattr(old_client, "repeat_penalty", None),
+            top_p=getattr(old_client, "top_p", None),
+            top_k=getattr(old_client, "top_k", None)
         )
         self.llm_client = new_client
 
@@ -569,8 +580,15 @@ class DanddobotClient(discord.Client):
             max_tokens_str = "기본값 (Default)" if max_tokens_val is None else f"{max_tokens_val}"
             rep_penalty_val = getattr(self.llm_client, "repeat_penalty", None)
             rep_penalty_str = "기본값 (Default)" if rep_penalty_val is None else f"{rep_penalty_val}"
+            top_p_val = getattr(self.llm_client, "top_p", None)
+            top_p_str = "기본값 (Default)" if top_p_val is None else f"{top_p_val}"
+            top_k_val = getattr(self.llm_client, "top_k", None)
+            top_k_str = "기본값 (Default)" if top_k_val is None else f"{top_k_val}"
             
-            hyperparams_summary = f"🌡️ **온도 (Temperature)**: `{temp_str}`  |  🪙 **최대 토큰 (Max Tokens)**: `{max_tokens_str}`  |  🔁 **반복 패널티 (Repeat Penalty)**: `{rep_penalty_str}`"
+            hyperparams_summary = (
+                f"🌡️ **온도 (Temperature)**: `{temp_str}`  |  🪙 **최대 토큰 (Max Tokens)**: `{max_tokens_str}`  |  🔁 **반복 패널티 (Repeat Penalty)**: `{rep_penalty_str}`\n"
+                f"🎯 **Top-P (Nucleus)**: `{top_p_str}`  |  📦 **Top-K (Candidates)**: `{top_k_str}`"
+            )
             embed.add_field(name="⚙️ 생성 하이퍼파라미터 (Generation Parameters)", value=hyperparams_summary, inline=False)
 
             # Prompt & Response fields
