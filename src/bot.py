@@ -562,6 +562,17 @@ class DanddobotClient(discord.Client):
             embed.add_field(name="📦 모델", value=f"`{model_name}`", inline=True)
             embed.add_field(name="🧠 메모리(대화 기록)", value=f"`{'활성화' if self.use_memory else '비활성화'}` (길이: {len(self.channel_history.get(message.channel.id, []))}/{self.max_memory_length})", inline=True)
 
+            # Retrieve dynamic hyperparameters
+            temp_val = getattr(self.llm_client, "temperature", None)
+            temp_str = "기본값 (Default)" if temp_val is None else f"{temp_val}"
+            max_tokens_val = getattr(self.llm_client, "max_tokens", None)
+            max_tokens_str = "기본값 (Default)" if max_tokens_val is None else f"{max_tokens_val}"
+            rep_penalty_val = getattr(self.llm_client, "repeat_penalty", None)
+            rep_penalty_str = "기본값 (Default)" if rep_penalty_val is None else f"{rep_penalty_val}"
+            
+            hyperparams_summary = f"🌡️ **온도 (Temperature)**: `{temp_str}`  |  🪙 **최대 토큰 (Max Tokens)**: `{max_tokens_str}`  |  🔁 **반복 패널티 (Repeat Penalty)**: `{rep_penalty_str}`"
+            embed.add_field(name="⚙️ 생성 하이퍼파라미터 (Generation Parameters)", value=hyperparams_summary, inline=False)
+
             # Prompt & Response fields
             embed.add_field(name="📝 프롬프트 (Raw Prompt)", value=f"```\n{safe_prompt}\n```", inline=False)
             embed.add_field(name="📤 생성된 답변 (Response)", value=f"```\n{safe_response}\n```", inline=False)
