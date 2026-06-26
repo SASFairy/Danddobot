@@ -40,6 +40,9 @@ def build_dashboard_embed(client: discord.Client, status_msg: str = "정상 작�
     turns = max_mem // 2
     memory_status = f"🟢 활성화 (최대 {max_mem}개 / {turns}회 대화)" if getattr(client, "use_memory", False) else "🔴 비활성화"
 
+    debug_mode = getattr(client, "debug_mode", False)
+    debug_status = "🟢 활성화" if debug_mode else "🔴 비활성화"
+
     embed = discord.Embed(
         title="🤖 Danddobot 관리 대시보드",
         description="단또봇의 실시간 상태를 모니터링하고 설정을 변경할 수 있는 전용 채널 콘솔입니다.",
@@ -48,6 +51,7 @@ def build_dashboard_embed(client: discord.Client, status_msg: str = "정상 작�
     embed.add_field(name="🟢 시스템 상태", value=f"`{status_msg}`", inline=True)
     embed.add_field(name="💬 활성 대화 채널", value=channel_mention, inline=True)
     embed.add_field(name="🧠 대화 기억 상태", value=f"`{memory_status}`", inline=True)
+    embed.add_field(name="🔧 디버그 모드", value=f"`{debug_status}`", inline=True)
     embed.add_field(name="⏱️ Discord API 지연 시간", value=f"`{round(client.latency * 1000)}ms`", inline=True)
     embed.add_field(name="🧠 LLM 엔진 설정", value=llm_info, inline=False)
     embed.add_field(name="📄 페르소나 설정", value=persona_status, inline=False)
@@ -496,6 +500,10 @@ class AdminDashboardView(ui.View):
         self.toggle_memory_btn.label = "🧠 대화 기억: On" if use_mem else "🧠 대화 기억: Off"
         self.toggle_memory_btn.style = discord.ButtonStyle.success if use_mem else discord.ButtonStyle.secondary
 
+        debug_mode = getattr(client, "debug_mode", False)
+        self.toggle_debug_btn.label = "🔧 디버그 모드: On" if debug_mode else "🔧 디버그 모드: Off"
+        self.toggle_debug_btn.style = discord.ButtonStyle.success if debug_mode else discord.ButtonStyle.secondary
+
     @ui.button(label="✏️ 페르소나 편집", style=discord.ButtonStyle.success, custom_id="danddobot_admin_edit", row=0)
     async def edit_persona_btn(self, interaction: discord.Interaction, button: ui.Button):
         logger.info(f"Edit persona modal requested by user {interaction.user} in {interaction.channel}")
@@ -563,6 +571,21 @@ class AdminDashboardView(ui.View):
         embed = build_dashboard_embed(self.client, status_msg=f"대화 기억 {state_str}")
         await interaction.message.edit(embed=embed, view=self)
         await interaction.response.send_message(f"✅ 대화 기억 기능이 **{state_str}** 되었습니다!", ephemeral=True)
+
+    @ui.button(label="🔧 디버그 모드: Off", style=discord.ButtonStyle.secondary, custom_id="danddobot_admin_toggle_debug", row=1)
+    async def toggle_debug_btn(self, interaction: discord.Interaction, button: ui.Button):
+        logger.info(f"Toggle debug requested by user {interaction.user}")
+        new_state = await self.client.toggle_debug_mode()
+        state_str = "활성화" if new_state else "비활성화"
+        
+        # Update button text and style dynamically
+        button.label = "🔧 디버그 모드: On" if new_state else "🔧 디버그 모드: Off"
+        button.style = discord.ButtonStyle.success if new_state else discord.ButtonStyle.secondary
+        
+        # Update dashboard embed and re-render the view components
+        embed = build_dashboard_embed(self.client, status_msg=f"디버그 모드 {state_str}")
+        await interaction.message.edit(embed=embed, view=self)
+        await interaction.response.send_message(f"✅ 디버그 모드가 **{state_str}** 되었습니다!", ephemeral=True)
 
     @ui.button(label="🔢 기억 용량 설정", style=discord.ButtonStyle.primary, custom_id="danddobot_admin_memory_limit", row=1)
     async def edit_memory_limit_btn(self, interaction: discord.Interaction, button: ui.Button):
