@@ -332,6 +332,12 @@ class DanddobotClient(discord.Client):
 
         user_content = message.content
         if log_channel:
+            # If debug mode is active, the rich debug embed log is already sent to the log channel.
+            # We skip sending this redundant raw text error message to prevent duplication.
+            if self.debug_mode:
+                logger.debug("Skipping redundant raw error message in log channel since debug mode is active.")
+                return
+
             error_msg = (
                 f"❌ **챗봇 시스템 오류 발생**\n"
                 f"• **채널**: {message.channel.mention} (ID: {message.channel.id})\n"
