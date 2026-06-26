@@ -642,19 +642,6 @@ class AdminDashboardView(ui.View):
         modal = LlmParametersEditModal(self.client)
         await interaction.response.send_modal(modal)
 
-    @ui.button(label="♻️ 옵션 초기화", style=discord.ButtonStyle.danger, custom_id="danddobot_admin_reset_parameters", row=0)
-    async def reset_parameters_btn(self, interaction: discord.Interaction, button: ui.Button):
-        logger.info(f"Reset LLM parameters requested by user {interaction.user}")
-        await self.client.reset_llm_parameters()
-        
-        # Rebuild dashboard view & edit message
-        from src.admin_panel import build_dashboard_embed, AdminDashboardView
-        embed = build_dashboard_embed(self.client, status_msg="LLM 생성 옵션 초기화 완료")
-        new_view = AdminDashboardView(self.client)
-        await interaction.message.edit(embed=embed, view=new_view)
-        
-        await interaction.response.send_message("♻️ 모든 LLM 생성 옵션이 모델 기본값으로 초기화되었습니다!", ephemeral=True)
-
     @ui.button(label="🩺 시스템 진단", style=discord.ButtonStyle.secondary, custom_id="danddobot_admin_diagnose", row=0)
     async def diagnose_system_btn(self, interaction: discord.Interaction, button: ui.Button):
         logger.info(f"Diagnostics requested by user {interaction.user}")
