@@ -23,7 +23,28 @@ def build_dashboard_embed(client: discord.Client, status_msg: str = "정상 작�
         model = getattr(client.llm_client, "model", "unknown")
         timeout_val = getattr(client.llm_client, "timeout", None)
         timeout_str = "무제한" if timeout_val is None else f"{timeout_val}초"
-        llm_info = f"**Provider**: `{provider}`\n**Model**: `{model}`\n**Timeout**: `{timeout_str}`"
+        
+        temp_val = getattr(client.llm_client, "temperature", None)
+        temp_str = "기본값" if temp_val is None else f"{temp_val}"
+        max_tokens_val = getattr(client.llm_client, "max_tokens", None)
+        max_tokens_str = "기본값" if max_tokens_val is None else f"{max_tokens_val}"
+        rep_penalty_val = getattr(client.llm_client, "repeat_penalty", None)
+        rep_penalty_str = "기본값" if rep_penalty_val is None else f"{rep_penalty_val}"
+        top_p_val = getattr(client.llm_client, "top_p", None)
+        top_p_str = "기본값" if top_p_val is None else f"{top_p_val}"
+        top_k_val = getattr(client.llm_client, "top_k", None)
+        top_k_str = "기본값" if top_k_val is None else f"{top_k_val}"
+        
+        llm_info = (
+            f"**Provider**: `{provider}`\n"
+            f"**Model**: `{model}`\n"
+            f"**Timeout**: `{timeout_str}`\n"
+            f"**Temperature**: `{temp_str}`\n"
+            f"**Max Tokens**: `{max_tokens_str}`\n"
+            f"**Repeat Penalty**: `{rep_penalty_str}`\n"
+            f"**Top-P**: `{top_p_str}`\n"
+            f"**Top-K**: `{top_k_str}`"
+        )
 
     persona_path = getattr(client, "persona_file_path", "config/persona.txt")
     persona_status = "존재하지 않음"
@@ -40,6 +61,9 @@ def build_dashboard_embed(client: discord.Client, status_msg: str = "정상 작�
     turns = max_mem // 2
     memory_status = f"🟢 활성화 (최대 {max_mem}개 / {turns}회 대화)" if getattr(client, "use_memory", False) else "🔴 비활성화"
 
+    debug_mode = getattr(client, "debug_mode", False)
+    debug_status = "🟢 활성화" if debug_mode else "🔴 비활성화"
+
     embed = discord.Embed(
         title="🤖 Danddobot 관리 대시보드",
         description="단또봇의 실시간 상태를 모니터링하고 설정을 변경할 수 있는 전용 채널 콘솔입니다.",
@@ -48,6 +72,7 @@ def build_dashboard_embed(client: discord.Client, status_msg: str = "정상 작�
     embed.add_field(name="🟢 시스템 상태", value=f"`{status_msg}`", inline=True)
     embed.add_field(name="💬 활성 대화 채널", value=channel_mention, inline=True)
     embed.add_field(name="🧠 대화 기억 상태", value=f"`{memory_status}`", inline=True)
+    embed.add_field(name="🔧 디버그 모드", value=f"`{debug_status}`", inline=True)
     embed.add_field(name="⏱️ Discord API 지연 시간", value=f"`{round(client.latency * 1000)}ms`", inline=True)
     embed.add_field(name="🧠 LLM 엔진 설정", value=llm_info, inline=False)
     embed.add_field(name="📄 페르소나 설정", value=persona_status, inline=False)
@@ -193,6 +218,159 @@ class MemoryLimitEditModal(ui.Modal, title="🔢 대화 기억 용량 설정"):
         await interaction.message.edit(embed=embed, view=new_view)
         
         await interaction.response.send_message(f"✅ 대화 기억 용량이 최대 **{new_val}개** (최근 {new_val // 2}회 대화)로 설정되었습니다!", ephemeral=True)
+
+
+class LlmParametersEditModal(ui.Modal, title="⚙️ LLM 생성 옵션(하이퍼파라미터) 설정"):
+    """
+    Discord Modal to edit the LLM generation parameters dynamically.
+    """
+    def __init__(self, client: discord.Client):
+        super().__init__()
+        self.client = client
+        
+        # Get current values
+        current_temp = getattr(getattr(client, "llm_client", None), "temperature", None)
+        current_max_tokens = getattr(getattr(client, "llm_client", None), "max_tokens", None)
+        current_repeat_penalty = getattr(getattr(client, "llm_client", None), "repeat_penalty", None)
+        current_top_p = getattr(getattr(client, "llm_client", None), "top_p", None)
+        current_top_k = getattr(getattr(client, "llm_client", None), "top_k", None)
+        
+        self.temp_input = ui.TextInput(
+            label="온도 (Temperature, 0.0 ~ 2.0 / 빈칸시 기본값)",
+            placeholder="예: 0.7 (낮을수록 일관적, 높을수록 창의적)",
+            default="" if current_temp is None else str(current_temp),
+            required=False,
+            max_length=5
+        )
+        self.max_tokens_input = ui.TextInput(
+            label="최대 토큰 (Max Tokens / 빈칸시 기본값)",
+            placeholder="예: 1024 (답변의 최대 길이 제한)",
+            default="" if current_max_tokens is None else str(current_max_tokens),
+            required=False,
+            max_length=6
+        )
+        self.repeat_penalty_input = ui.TextInput(
+            label="반복 패널티 (Repeat Penalty, 1.0 ~ 2.0 / 빈칸시 기본값)",
+            placeholder="예: 1.1 (높을수록 중복 표현 억제)",
+            default="" if current_repeat_penalty is None else str(current_repeat_penalty),
+            required=False,
+            max_length=5
+        )
+        self.top_p_input = ui.TextInput(
+            label="Top-P (Nucleus Sampling, 0.0 ~ 1.0 / 빈칸시 기본값)",
+            placeholder="예: 0.9 (낮을수록 상위 확률 단어만 선택)",
+            default="" if current_top_p is None else str(current_top_p),
+            required=False,
+            max_length=5
+        )
+        self.top_k_input = ui.TextInput(
+            label="Top-K (Candidates count, 1 이상 정수 / 빈칸시 기본값)",
+            placeholder="예: 40 (높을수록 더 다양한 어휘 탐색)",
+            default="" if current_top_k is None else str(current_top_k),
+            required=False,
+            max_length=5
+        )
+        
+        self.add_item(self.temp_input)
+        self.add_item(self.max_tokens_input)
+        self.add_item(self.repeat_penalty_input)
+        self.add_item(self.top_p_input)
+        self.add_item(self.top_k_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        client = self.client
+        
+        temp_val = None
+        max_tokens_val = None
+        rep_penalty_val = None
+        top_p_val = None
+        top_k_val = None
+        
+        # 1. Parse Temperature
+        temp_str = self.temp_input.value.strip()
+        if temp_str:
+            try:
+                temp_val = float(temp_str)
+                if temp_val < 0.0 or temp_val > 2.0:
+                    await interaction.response.send_message("❌ 온도는 0.0에서 2.0 사이의 숫자여야 합니다.", ephemeral=True)
+                    return
+            except ValueError:
+                await interaction.response.send_message("❌ 온도는 올바른 실수여야 합니다.", ephemeral=True)
+                return
+                
+        # 2. Parse Max Tokens
+        max_tokens_str = self.max_tokens_input.value.strip()
+        if max_tokens_str:
+            try:
+                max_tokens_val = int(max_tokens_str)
+                if max_tokens_val <= 0:
+                    await interaction.response.send_message("❌ 최대 토큰은 0보다 큰 정수여야 합니다.", ephemeral=True)
+                    return
+            except ValueError:
+                await interaction.response.send_message("❌ 최대 토큰은 올바른 정수여야 합니다.", ephemeral=True)
+                return
+                
+        # 3. Parse Repeat Penalty
+        rep_penalty_str = self.repeat_penalty_input.value.strip()
+        if rep_penalty_str:
+            try:
+                rep_penalty_val = float(rep_penalty_str)
+                if rep_penalty_val < 1.0:
+                    await interaction.response.send_message("❌ 반복 패널티는 1.0 이상의 숫자여야 합니다.", ephemeral=True)
+                    return
+            except ValueError:
+                await interaction.response.send_message("❌ 반복 패널티는 올바른 실수여야 합니다.", ephemeral=True)
+                return
+
+        # 4. Parse Top-P
+        top_p_str = self.top_p_input.value.strip()
+        if top_p_str:
+            try:
+                top_p_val = float(top_p_str)
+                if top_p_val < 0.0 or top_p_val > 1.0:
+                    await interaction.response.send_message("❌ Top-P는 0.0에서 1.0 사이의 숫자여야 합니다.", ephemeral=True)
+                    return
+            except ValueError:
+                await interaction.response.send_message("❌ Top-P는 올바른 실수여야 합니다.", ephemeral=True)
+                return
+                
+        # 5. Parse Top-K
+        top_k_str = self.top_k_input.value.strip()
+        if top_k_str:
+            try:
+                top_k_val = int(top_k_str)
+                if top_k_val <= 0:
+                    await interaction.response.send_message("❌ Top-K는 1 이상의 정수여야 합니다.", ephemeral=True)
+                    return
+            except ValueError:
+                await interaction.response.send_message("❌ Top-K는 올바른 정수여야 합니다.", ephemeral=True)
+                return
+                
+        # Update and persist parameters
+        await client.update_llm_parameters(
+            temperature=temp_val,
+            max_tokens=max_tokens_val,
+            repeat_penalty=rep_penalty_val,
+            top_p=top_p_val,
+            top_k=top_k_val
+        )
+        
+        # Rebuild dashboard view & edit message
+        from src.admin_panel import build_dashboard_embed, AdminDashboardView
+        embed = build_dashboard_embed(client, status_msg="LLM 생성 옵션 변경 완료")
+        new_view = AdminDashboardView(client)
+        await interaction.message.edit(embed=embed, view=new_view)
+        
+        # Prepare success message text
+        status_lines = []
+        status_lines.append(f"• **Temperature**: `{temp_val if temp_val is not None else '기본값'}`")
+        status_lines.append(f"• **Max Tokens**: `{max_tokens_val if max_tokens_val is not None else '기본값'}`")
+        status_lines.append(f"• **Repeat Penalty**: `{rep_penalty_val if rep_penalty_val is not None else '기본값'}`")
+        status_lines.append(f"• **Top-P**: `{top_p_val if top_p_val is not None else '기본값'}`")
+        status_lines.append(f"• **Top-K**: `{top_k_val if top_k_val is not None else '기본값'}`")
+        status_summary = "\n".join(status_lines)
+        
+        await interaction.response.send_message(f"✅ LLM 생성 옵션이 성공적으로 변경되었습니다!\n{status_summary}", ephemeral=True)
 
 
 class AdminMessageSendModal(ui.Modal, title="📣 활성 채널로 메시지 전송"):
@@ -496,6 +674,10 @@ class AdminDashboardView(ui.View):
         self.toggle_memory_btn.label = "🧠 대화 기억: On" if use_mem else "🧠 대화 기억: Off"
         self.toggle_memory_btn.style = discord.ButtonStyle.success if use_mem else discord.ButtonStyle.secondary
 
+        debug_mode = getattr(client, "debug_mode", False)
+        self.toggle_debug_btn.label = "🔧 디버그 모드: On" if debug_mode else "🔧 디버그 모드: Off"
+        self.toggle_debug_btn.style = discord.ButtonStyle.success if debug_mode else discord.ButtonStyle.secondary
+
     @ui.button(label="✏️ 페르소나 편집", style=discord.ButtonStyle.success, custom_id="danddobot_admin_edit", row=0)
     async def edit_persona_btn(self, interaction: discord.Interaction, button: ui.Button):
         logger.info(f"Edit persona modal requested by user {interaction.user} in {interaction.channel}")
@@ -506,6 +688,12 @@ class AdminDashboardView(ui.View):
     async def edit_timeout_btn(self, interaction: discord.Interaction, button: ui.Button):
         logger.info(f"Edit timeout modal requested by user {interaction.user} in {interaction.channel}")
         modal = LlmTimeoutEditModal(self.client)
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="⚙️ 생성 옵션", style=discord.ButtonStyle.success, custom_id="danddobot_admin_parameters", row=0)
+    async def edit_parameters_btn(self, interaction: discord.Interaction, button: ui.Button):
+        logger.info(f"Edit LLM parameters modal requested by user {interaction.user} in {interaction.channel}")
+        modal = LlmParametersEditModal(self.client)
         await interaction.response.send_modal(modal)
 
     @ui.button(label="🩺 시스템 진단", style=discord.ButtonStyle.secondary, custom_id="danddobot_admin_diagnose", row=0)
@@ -563,6 +751,21 @@ class AdminDashboardView(ui.View):
         embed = build_dashboard_embed(self.client, status_msg=f"대화 기억 {state_str}")
         await interaction.message.edit(embed=embed, view=self)
         await interaction.response.send_message(f"✅ 대화 기억 기능이 **{state_str}** 되었습니다!", ephemeral=True)
+
+    @ui.button(label="🔧 디버그 모드: Off", style=discord.ButtonStyle.secondary, custom_id="danddobot_admin_toggle_debug", row=1)
+    async def toggle_debug_btn(self, interaction: discord.Interaction, button: ui.Button):
+        logger.info(f"Toggle debug requested by user {interaction.user}")
+        new_state = await self.client.toggle_debug_mode()
+        state_str = "활성화" if new_state else "비활성화"
+        
+        # Update button text and style dynamically
+        button.label = "🔧 디버그 모드: On" if new_state else "🔧 디버그 모드: Off"
+        button.style = discord.ButtonStyle.success if new_state else discord.ButtonStyle.secondary
+        
+        # Update dashboard embed and re-render the view components
+        embed = build_dashboard_embed(self.client, status_msg=f"디버그 모드 {state_str}")
+        await interaction.message.edit(embed=embed, view=self)
+        await interaction.response.send_message(f"✅ 디버그 모드가 **{state_str}** 되었습니다!", ephemeral=True)
 
     @ui.button(label="🔢 기억 용량 설정", style=discord.ButtonStyle.primary, custom_id="danddobot_admin_memory_limit", row=1)
     async def edit_memory_limit_btn(self, interaction: discord.Interaction, button: ui.Button):

@@ -9,6 +9,14 @@ class BaseLLMClient:
     Abstract Base Class for local/external LLM integration.
     Allows easy porting by ensuring all clients expose the same async interface.
     """
+    def __init__(self, temperature: Optional[float] = None, max_tokens: Optional[int] = None, repeat_penalty: Optional[float] = None,
+                 top_p: Optional[float] = None, top_k: Optional[int] = None):
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self.repeat_penalty = repeat_penalty
+        self.top_p = top_p
+        self.top_k = top_k
+
     async def generate_response(self, prompt: str, system_prompt: Optional[str] = None, history: Optional[list[dict]] = None) -> str:
         """
         Sends the prompt, an optional system prompt, and optional context history to the local LLM and returns the generated answer.
@@ -33,7 +41,11 @@ class BaseOpenAICompatibleClient(BaseLLMClient):
     Base client encapsulating OpenAI-compatible /v1 API structure,
     connection pooling, and optional API key authentication.
     """
-    def __init__(self, api_url: str, model: str, api_key: Optional[str] = None, provider_name: str = "OpenAICompatible", timeout: Optional[float] = 300.0):
+    def __init__(self, api_url: str, model: str, api_key: Optional[str] = None, provider_name: str = "OpenAICompatible", timeout: Optional[float] = 300.0,
+                 temperature: Optional[float] = None, max_tokens: Optional[int] = None,
+                 repeat_penalty: Optional[float] = None, top_p: Optional[float] = None,
+                 top_k: Optional[int] = None):
+        super().__init__(temperature=temperature, max_tokens=max_tokens, repeat_penalty=repeat_penalty, top_p=top_p, top_k=top_k)
         self.api_url = api_url.rstrip('/')
         self.model = model
         self.api_key = api_key
@@ -71,6 +83,18 @@ class BaseOpenAICompatibleClient(BaseLLMClient):
             "messages": messages,
             "stream": False
         }
+
+        # Inject hyperparameters dynamically if configured
+        if self.temperature is not None:
+            payload["temperature"] = self.temperature
+        if self.max_tokens is not None:
+            payload["max_tokens"] = self.max_tokens
+        if self.repeat_penalty is not None:
+            # Map repeat_penalty (1.0 to 2.0+) to frequency_penalty (0.0 to 2.0)
+            freq_penalty = max(0.0, min(2.0, (self.repeat_penalty - 1.0)))
+            payload["frequency_penalty"] = freq_penalty
+        if self.top_p is not None:
+            payload["top_p"] = self.top_p
 
         try:
             client = await self._get_client()
@@ -126,7 +150,11 @@ class OllamaClient(BaseLLMClient):
     """
     Client for Ollama's direct HTTP Chat API (/api/chat).
     """
-    def __init__(self, api_url: str, model: str, timeout: Optional[float] = 300.0):
+    def __init__(self, api_url: str, model: str, timeout: Optional[float] = 300.0,
+                 temperature: Optional[float] = None, max_tokens: Optional[int] = None,
+                 repeat_penalty: Optional[float] = None, top_p: Optional[float] = None,
+                 top_k: Optional[int] = None):
+        super().__init__(temperature=temperature, max_tokens=max_tokens, repeat_penalty=repeat_penalty, top_p=top_p, top_k=top_k)
         # Ensure the api_url doesn't end with a slash for clean endpoint appending
         self.api_url = api_url.rstrip('/')
         self.model = model
@@ -156,6 +184,22 @@ class OllamaClient(BaseLLMClient):
             "messages": messages,
             "stream": False
         }
+
+        # Inject hyperparameters dynamically if configured
+        options = {}
+        if self.temperature is not None:
+            options["temperature"] = self.temperature
+        if self.max_tokens is not None:
+            options["num_predict"] = self.max_tokens
+        if self.repeat_penalty is not None:
+            options["repeat_penalty"] = self.repeat_penalty
+        if self.top_p is not None:
+            options["top_p"] = self.top_p
+        if self.top_k is not None:
+            options["top_k"] = self.top_k
+
+        if options:
+            payload["options"] = options
 
         try:
             client = await self._get_client()
@@ -207,13 +251,21 @@ class OpenAICompatibleClient(BaseOpenAICompatibleClient):
     Client for OpenAI-compatible local APIs (vLLM, Llama.cpp, LocalAI, etc.)
     that does not require an API key by default.
     """
-    def __init__(self, api_url: str, model: str, provider_name: str = "OpenAICompatible", timeout: Optional[float] = 300.0):
+    def __init__(self, api_url: str, model: str, provider_name: str = "OpenAICompatible", timeout: Optional[float] = 300.0,
+                 temperature: Optional[float] = None, max_tokens: Optional[int] = None,
+                 repeat_penalty: Optional[float] = None, top_p: Optional[float] = None,
+                 top_k: Optional[int] = None):
         super().__init__(
             api_url=api_url,
             model=model,
             api_key=None,
             provider_name=provider_name,
-            timeout=timeout
+            timeout=timeout,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            repeat_penalty=repeat_penalty,
+            top_p=top_p,
+            top_k=top_k
         )
 
 
@@ -221,13 +273,21 @@ class CerebrasClient(BaseOpenAICompatibleClient):
     """
     Client for Cerebras Cloud Inference API (OpenAI Compatible with API Key authentication).
     """
-    def __init__(self, api_url: str, model: str, api_key: str, timeout: Optional[float] = 300.0):
+    def __init__(self, api_url: str, model: str, api_key: str, timeout: Optional[float] = 300.0,
+                 temperature: Optional[float] = None, max_tokens: Optional[int] = None,
+                 repeat_penalty: Optional[float] = None, top_p: Optional[float] = None,
+                 top_k: Optional[int] = None):
         super().__init__(
             api_url=api_url or "https://api.cerebras.ai",
             model=model,
             api_key=api_key,
             provider_name="Cerebras",
-            timeout=timeout
+            timeout=timeout,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            repeat_penalty=repeat_penalty,
+            top_p=top_p,
+            top_k=top_k
         )
 
 
@@ -236,20 +296,23 @@ class LLMClientFactory:
     Factory to resolve the concrete BaseLLMClient instance dynamically.
     """
     @staticmethod
-    def get_client(provider: str, api_url: str, model: str, timeout: Optional[float] = 300.0, api_key: Optional[str] = None) -> BaseLLMClient:
+    def get_client(provider: str, api_url: str, model: str, timeout: Optional[float] = 300.0, api_key: Optional[str] = None,
+                   temperature: Optional[float] = None, max_tokens: Optional[int] = None,
+                   repeat_penalty: Optional[float] = None, top_p: Optional[float] = None,
+                   top_k: Optional[int] = None) -> BaseLLMClient:
         prov = provider.upper()
         if prov == "OLLAMA":
-            return OllamaClient(api_url, model, timeout=timeout)
+            return OllamaClient(api_url, model, timeout=timeout, temperature=temperature, max_tokens=max_tokens, repeat_penalty=repeat_penalty, top_p=top_p, top_k=top_k)
         elif prov == "CEREBRAS":
-            return CerebrasClient(api_url, model, api_key=api_key, timeout=timeout)
+            return CerebrasClient(api_url, model, api_key=api_key, timeout=timeout, temperature=temperature, max_tokens=max_tokens, repeat_penalty=repeat_penalty, top_p=top_p, top_k=top_k)
         elif prov == "OPENAI_COMPATIBLE":
-            return OpenAICompatibleClient(api_url, model, "OpenAICompatible", timeout=timeout)
+            return OpenAICompatibleClient(api_url, model, "OpenAICompatible", timeout=timeout, temperature=temperature, max_tokens=max_tokens, repeat_penalty=repeat_penalty, top_p=top_p, top_k=top_k)
         elif prov == "LLAMA_CPP":
-            return OpenAICompatibleClient(api_url, model, "LlamaCpp", timeout=timeout)
+            return OpenAICompatibleClient(api_url, model, "LlamaCpp", timeout=timeout, temperature=temperature, max_tokens=max_tokens, repeat_penalty=repeat_penalty, top_p=top_p, top_k=top_k)
         elif prov == "VLLM":
-            return OpenAICompatibleClient(api_url, model, "vLLM", timeout=timeout)
+            return OpenAICompatibleClient(api_url, model, "vLLM", timeout=timeout, temperature=temperature, max_tokens=max_tokens, repeat_penalty=repeat_penalty, top_p=top_p, top_k=top_k)
         elif prov == "LM_STUDIO":
-            return OpenAICompatibleClient(api_url, model, "LMStudio", timeout=timeout)
+            return OpenAICompatibleClient(api_url, model, "LMStudio", timeout=timeout, temperature=temperature, max_tokens=max_tokens, repeat_penalty=repeat_penalty, top_p=top_p, top_k=top_k)
         else:
             logger.warning(f"Unknown LLM provider: {provider}. Defaulting to OLLAMA client.")
-            return OllamaClient(api_url, model, timeout=timeout)
+            return OllamaClient(api_url, model, timeout=timeout, temperature=temperature, max_tokens=max_tokens, repeat_penalty=repeat_penalty, top_p=top_p, top_k=top_k)

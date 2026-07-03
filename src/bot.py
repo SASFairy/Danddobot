@@ -3,6 +3,7 @@ import logging
 import os
 import asyncio
 import discord
+import time
 from typing import Dict, List, Optional
 from src.state_manager import StateManager
 from src.llm_client import BaseLLMClient
@@ -78,6 +79,7 @@ class DanddobotClient(discord.Client):
         self.use_memory: bool = self.state_manager.get_value("use_memory", False)
         self.max_memory_length: int = self.state_manager.get_value("max_memory_length", 10)
         self.active_channel_id: Optional[int] = self.state_manager.get_value("channel_id")
+        self.debug_mode: bool = self.state_manager.get_value("debug_mode", False)
 
         if self.active_channel_id and int(self.active_channel_id) in self.registered_channels:
             self.active_channel_id = int(self.active_channel_id)
@@ -105,7 +107,8 @@ class DanddobotClient(discord.Client):
             f"Registered channels: {list(self.registered_channels.keys())}, "
             f"Admin channel: {self.admin_channel_id}, "
             f"Log channel: {self.log_channel_id}, "
-            f"Memory Enabled: {self.use_memory} (Max capacity: {self.max_memory_length})"
+            f"Memory Enabled: {self.use_memory} (Max capacity: {self.max_memory_length}), "
+            f"Debug Mode Enabled: {self.debug_mode}"
         )
 
     async def update_active_channel(self, new_channel_id: int):
@@ -126,6 +129,13 @@ class DanddobotClient(discord.Client):
             self.channel_history.clear()
         return self.use_memory
 
+    async def toggle_debug_mode(self) -> bool:
+        """Toggles real-time debug logging mode and persists the state using StateManager."""
+        self.debug_mode = not self.debug_mode
+        await self.state_manager.set_value("debug_mode", self.debug_mode)
+        logger.info(f"Debug logging mode toggled and persisted: {self.debug_mode}")
+        return self.debug_mode
+
     async def set_max_memory_length(self, limit: int):
         """Sets the conversational memory history size and persists using StateManager."""
         self.max_memory_length = limit
@@ -145,6 +155,43 @@ class DanddobotClient(discord.Client):
             self.llm_client.model = new_model
         await self.state_manager.set_value("llm_model", new_model)
         logger.info(f"LLM model updated and persisted: {new_model}")
+
+    async def update_llm_parameters(self, temperature: Optional[float], max_tokens: Optional[int], repeat_penalty: Optional[float],
+                                    top_p: Optional[float], top_k: Optional[int]):
+        """
+        Dynamically updates the LLM generation hyperparameters and persists them using StateManager.
+        """
+        if hasattr(self, "llm_client") and self.llm_client:
+            self.llm_client.temperature = temperature
+            self.llm_client.max_tokens = max_tokens
+            self.llm_client.repeat_penalty = repeat_penalty
+            self.llm_client.top_p = top_p
+            self.llm_client.top_k = top_k
+        
+        await self.state_manager.set_value("llm_temperature", temperature)
+        await self.state_manager.set_value("llm_max_tokens", max_tokens)
+        await self.state_manager.set_value("llm_repeat_penalty", repeat_penalty)
+        await self.state_manager.set_value("llm_top_p", top_p)
+        await self.state_manager.set_value("llm_top_k", top_k)
+        logger.info(f"LLM parameters updated and persisted: Temperature={temperature}, MaxTokens={max_tokens}, RepeatPenalty={repeat_penalty}, TopP={top_p}, TopK={top_k}")
+
+    async def reset_llm_parameters(self):
+        """
+        Resets all LLM generation hyperparameters to None (forcing model-native defaults) and persists them using StateManager.
+        """
+        if hasattr(self, "llm_client") and self.llm_client:
+            self.llm_client.temperature = None
+            self.llm_client.max_tokens = None
+            self.llm_client.repeat_penalty = None
+            self.llm_client.top_p = None
+            self.llm_client.top_k = None
+        
+        await self.state_manager.set_value("llm_temperature", None)
+        await self.state_manager.set_value("llm_max_tokens", None)
+        await self.state_manager.set_value("llm_repeat_penalty", None)
+        await self.state_manager.set_value("llm_top_p", None)
+        await self.state_manager.set_value("llm_top_k", None)
+        logger.info("LLM parameters reset to model defaults and persisted.")
 
     async def update_llm_provider(self, new_provider: str):
         """Gracefully updates the LLM provider, re-instantiating the LLM Client using the pre-configured URL."""
@@ -174,7 +221,12 @@ class DanddobotClient(discord.Client):
             api_url=new_api_url,
             model=current_model,
             timeout=current_timeout,
-            api_key=self.cerebras_api_key if new_provider_upper == "CEREBRAS" else None
+            api_key=self.cerebras_api_key if new_provider_upper == "CEREBRAS" else None,
+            temperature=getattr(old_client, "temperature", None),
+            max_tokens=getattr(old_client, "max_tokens", None),
+            repeat_penalty=getattr(old_client, "repeat_penalty", None),
+            top_p=getattr(old_client, "top_p", None),
+            top_k=getattr(old_client, "top_k", None)
         )
         self.llm_client = new_client
 
@@ -325,6 +377,12 @@ class DanddobotClient(discord.Client):
 
         user_content = message.content
         if log_channel:
+            # If debug mode is active, the rich debug embed log is already sent to the log channel.
+            # We skip sending this redundant raw text error message to prevent duplication.
+            if self.debug_mode:
+                logger.debug("Skipping redundant raw error message in log channel since debug mode is active.")
+                return
+
             error_msg = (
                 f"❌ **챗봇 시스템 오류 발생**\n"
                 f"• **채널**: {message.channel.mention} (ID: {message.channel.id})\n"
@@ -367,12 +425,38 @@ class DanddobotClient(discord.Client):
             # Display typing status while LLM generates response
             llm_error = None
             response = None
+            start_time = time.perf_counter()
             async with message.channel.typing():
                 try:
                     response = await self.llm_client.generate_response(user_content, system_prompt, history=history)
                 except Exception as e:
                     logger.error(f"Failed to generate LLM response: {e}")
                     llm_error = e
+            latency = time.perf_counter() - start_time
+
+            # Dispatch debug log in background if debug mode is active
+            if self.debug_mode:
+                if llm_error is not None:
+                    asyncio.create_task(
+                        self.send_debug_log(
+                            message=message,
+                            prompt=user_content,
+                            response=None,
+                            latency=latency,
+                            is_error=True,
+                            error_message=str(llm_error)
+                        )
+                    )
+                else:
+                    asyncio.create_task(
+                        self.send_debug_log(
+                            message=message,
+                            prompt=user_content,
+                            response=response,
+                            latency=latency,
+                            is_error=False
+                        )
+                    )
 
             if llm_error is not None:
                 await self._handle_llm_error(message, llm_error)
@@ -441,6 +525,83 @@ class DanddobotClient(discord.Client):
             chunks.append(current_chunk.strip())
 
         return chunks
+
+    async def send_debug_log(self, message: discord.Message, prompt: str, response: Optional[str], latency: float, is_error: bool = False, error_message: Optional[str] = None):
+        """
+        Builds and sends a premium Discord Embed log to the configured log channel.
+        This must be safe, sliced, non-blocking, and handled gracefully.
+        """
+        if not self.log_channel_id:
+            logger.debug("Debug logging triggered, but no log channel ID is configured.")
+            return
+
+        try:
+            log_channel = self.get_channel(self.log_channel_id)
+            if not log_channel:
+                log_channel = await self.fetch_channel(self.log_channel_id)
+            
+            if not log_channel:
+                logger.warning(f"Could not find or fetch log channel with ID: {self.log_channel_id}")
+                return
+
+            provider = "Unknown"
+            model_name = "Unknown"
+            if hasattr(self, "llm_client") and self.llm_client:
+                provider = self.state_manager.get_value("llm_provider", "Unknown")
+                model_name = getattr(self.llm_client, "model", "Unknown")
+
+            # Slice prompt and response for Discord Embed limits (1024 characters max per field value)
+            safe_prompt = prompt[:1000] + (" ... (truncated)" if len(prompt) > 1000 else "")
+            
+            if is_error:
+                safe_response = f"❌ **오류 발생**: `{error_message}`"
+                color = 0xE74C3C  # Red for error
+                title = "🔧 디버그 로그 (실패)"
+            else:
+                safe_response = (response or "")[:1000] + (" ... (truncated)" if len(response or "") > 1000 else "")
+                color = 0x3498DB  # Blue for success
+                title = "🔧 디버그 로그 (성공)"
+
+            # Create Discord Embed
+            embed = discord.Embed(
+                title=title,
+                color=color
+            )
+
+            # Metadata fields
+            embed.add_field(name="👤 작성자", value=f"{message.author.mention} ({message.author.name})", inline=True)
+            embed.add_field(name="💬 채널", value=f"{message.channel.mention} (ID: {message.channel.id})", inline=True)
+            embed.add_field(name="⏱️ 소요 시간", value=f"`{latency:.3f}초`", inline=True)
+            embed.add_field(name="🤖 백엔드 엔진", value=f"`{provider}`", inline=True)
+            embed.add_field(name="📦 모델", value=f"`{model_name}`", inline=True)
+            embed.add_field(name="🧠 메모리(대화 기록)", value=f"`{'활성화' if self.use_memory else '비활성화'}` (길이: {len(self.channel_history.get(message.channel.id, []))}/{self.max_memory_length})", inline=True)
+
+            # Retrieve dynamic hyperparameters
+            temp_val = getattr(self.llm_client, "temperature", None)
+            temp_str = "기본값 (Default)" if temp_val is None else f"{temp_val}"
+            max_tokens_val = getattr(self.llm_client, "max_tokens", None)
+            max_tokens_str = "기본값 (Default)" if max_tokens_val is None else f"{max_tokens_val}"
+            rep_penalty_val = getattr(self.llm_client, "repeat_penalty", None)
+            rep_penalty_str = "기본값 (Default)" if rep_penalty_val is None else f"{rep_penalty_val}"
+            top_p_val = getattr(self.llm_client, "top_p", None)
+            top_p_str = "기본값 (Default)" if top_p_val is None else f"{top_p_val}"
+            top_k_val = getattr(self.llm_client, "top_k", None)
+            top_k_str = "기본값 (Default)" if top_k_val is None else f"{top_k_val}"
+            
+            hyperparams_summary = (
+                f"🌡️ **온도 (Temperature)**: `{temp_str}`  |  🪙 **최대 토큰 (Max Tokens)**: `{max_tokens_str}`  |  🔁 **반복 패널티 (Repeat Penalty)**: `{rep_penalty_str}`\n"
+                f"🎯 **Top-P (Nucleus)**: `{top_p_str}`  |  📦 **Top-K (Candidates)**: `{top_k_str}`"
+            )
+            embed.add_field(name="⚙️ 생성 하이퍼파라미터 (Generation Parameters)", value=hyperparams_summary, inline=False)
+
+            # Prompt & Response fields
+            embed.add_field(name="📝 프롬프트 (Raw Prompt)", value=f"```\n{safe_prompt}\n```", inline=False)
+            embed.add_field(name="📤 생성된 답변 (Response)", value=f"```\n{safe_response}\n```", inline=False)
+
+            await log_channel.send(embed=embed)
+            logger.debug("Successfully dispatched debug log embed to log channel.")
+        except Exception as e:
+            logger.error(f"Failed to send debug log embed: {e}")
 
     async def close(self):
         """Disposes of persistent client pools and logs out from Discord gateway."""
