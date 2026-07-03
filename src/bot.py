@@ -47,6 +47,7 @@ class DanddobotClient(discord.Client):
     def __init__(self, channels_file_path: str, llm_client: BaseLLMClient, persona_file_path: str,
                  state_manager: StateManager, admin_channel_id: Optional[int] = None, 
                  log_channel_id: Optional[int] = None, provider_urls: Optional[Dict[str, str]] = None,
+                 cerebras_api_key: Optional[str] = None,
                  *args, **kwargs):
         # We require message_content intents to read user messages
         intents = discord.Intents.default()
@@ -61,6 +62,7 @@ class DanddobotClient(discord.Client):
         self.admin_channel_id = admin_channel_id
         self.log_channel_id = log_channel_id
         self.provider_urls = provider_urls if provider_urls is not None else {}
+        self.cerebras_api_key = cerebras_api_key
 
         # Centralized configurations cache
         self.state_manager = state_manager
@@ -171,7 +173,8 @@ class DanddobotClient(discord.Client):
             provider=new_provider_upper,
             api_url=new_api_url,
             model=current_model,
-            timeout=current_timeout
+            timeout=current_timeout,
+            api_key=self.cerebras_api_key if new_provider_upper == "CEREBRAS" else None
         )
         self.llm_client = new_client
 

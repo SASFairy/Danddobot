@@ -53,10 +53,14 @@ def main():
 
     # Read LLM Engine-specific API URLs from .env
     provider_urls = {}
-    for prov in ["OLLAMA", "OPENAI_COMPATIBLE", "LLAMA_CPP", "VLLM", "LM_STUDIO"]:
+    for prov in ["OLLAMA", "OPENAI_COMPATIBLE", "LLAMA_CPP", "VLLM", "LM_STUDIO", "CEREBRAS"]:
         url = os.getenv(f"{prov}_API_URL")
         if url and url.strip():
             provider_urls[prov] = url.strip()
+
+    # Add Cerebras default endpoint if not explicitly configured in *_API_URL
+    if "CEREBRAS" not in provider_urls:
+        provider_urls["CEREBRAS"] = os.getenv("CEREBRAS_API_URL", "https://api.cerebras.ai").strip()
             
     # Ensure current provider and API URL is represented in provider_urls
     if llm_provider not in provider_urls:
@@ -118,15 +122,21 @@ def main():
     logger.info(f"Persona Prompt Path: {persona_file_path}")
     logger.info(f"Channels Config Path: {channels_file_path}")
 
+    # Read Cerebras API key from environment
+    cerebras_api_key = os.getenv("CEREBRAS_API_KEY", "").strip()
+    if llm_provider.upper() == "CEREBRAS" and not cerebras_api_key:
+        logger.warning("CEREBRAS_API_KEY is not configured, but CEREBRAS is selected as the LLM provider. Generation requests will likely fail.")
+
     # 5. Initialize LLM Adapter Client
     llm_client = LLMClientFactory.get_client(
         provider=llm_provider,
         api_url=llm_api_url,
         model=llm_model,
-        timeout=llm_timeout
+        timeout=llm_timeout,
+        api_key=cerebras_api_key if llm_provider.upper() == "CEREBRAS" else None
     )
 
-    # 6. Initialize Discord Client, passing StateManager and provider_urls
+    # 6. Initialize Discord Client, passing StateManager, provider_urls, and cerebras_api_key
     bot = DanddobotClient(
         channels_file_path=channels_file_path,
         llm_client=llm_client,
@@ -134,7 +144,8 @@ def main():
         admin_channel_id=admin_channel_id,
         log_channel_id=log_channel_id,
         state_manager=state_manager,
-        provider_urls=provider_urls
+        provider_urls=provider_urls,
+        cerebras_api_key=cerebras_api_key
     )
 
     # 7. Run the Bot

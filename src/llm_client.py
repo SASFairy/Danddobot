@@ -6,7 +6,7 @@ logger = logging.getLogger("danddobot.llm_client")
 
 class BaseLLMClient:
     """
-    Abstract Base Class for local LLM integration.
+    Abstract Base Class for local/external LLM integration.
     Allows easy porting by ensuring all clients expose the same async interface.
     """
     async def generate_response(self, prompt: str, system_prompt: Optional[str] = None, history: Optional[list[dict]] = None) -> str:
@@ -26,6 +26,100 @@ class BaseLLMClient:
         Closes any long-lived persistent HTTP connection pools.
         """
         pass
+
+
+class BaseOpenAICompatibleClient(BaseLLMClient):
+    """
+    Base client encapsulating OpenAI-compatible /v1 API structure,
+    connection pooling, and optional API key authentication.
+    """
+    def __init__(self, api_url: str, model: str, api_key: Optional[str] = None, provider_name: str = "OpenAICompatible", timeout: Optional[float] = 300.0):
+        self.api_url = api_url.rstrip('/')
+        self.model = model
+        self.api_key = api_key
+        self.provider_name = provider_name
+        self.timeout = timeout
+        self._client: Optional[httpx.AsyncClient] = None
+        logger.info(f"{provider_name}Client initialized with URL: {self.api_url}, model: {self.model}, timeout: {self.timeout}")
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Lazily instantiates and returns a persistent shared httpx.AsyncClient."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient()  # Single shared instance
+            logger.info(f"Shared persistent connection pool initialized for {self.provider_name}Client.")
+        return self._client
+
+    def _get_headers(self) -> dict:
+        """Constructs headers, injecting the Authorization bearer token if api_key is present."""
+        headers = {}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        return headers
+
+    async def generate_response(self, prompt: str, system_prompt: Optional[str] = None, history: Optional[list[dict]] = None) -> str:
+        endpoint = f"{self.api_url}/v1/chat/completions"
+        
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        if history:
+            messages.extend(history)
+        messages.append({"role": "user", "content": prompt})
+
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "stream": False
+        }
+
+        try:
+            client = await self._get_client()
+            headers = self._get_headers()
+            logger.debug(f"Sending request to {self.provider_name} endpoint: {endpoint}")
+            # Dynamically pass self.timeout on each request to allow real-time changes
+            response = await client.post(endpoint, json=payload, headers=headers, timeout=self.timeout)
+            response.raise_for_status()
+            
+            result = response.json()
+            choices = result.get("choices", [])
+            if choices:
+                answer = choices[0].get("message", {}).get("content", "")
+                return answer
+            raise ValueError("API가 올바른 대답 형식을 반환하지 않았습니다.")
+        except httpx.TimeoutException as e:
+            logger.error(f"Timeout occurred while contacting {self.provider_name}: {e}")
+            raise RuntimeError(f"로컬/외부 LLM 응답 요청 시간이 초과되었습니다. (Timeout: {e})") from e
+        except httpx.HTTPError as e:
+            logger.error(f"HTTP error occurred while contacting {self.provider_name}: {e}")
+            raise RuntimeError(f"로컬/외부 LLM 통신 중 오류가 발생했습니다. (HTTP Error: {e})") from e
+        except Exception as e:
+            logger.error(f"Unexpected error in {self.provider_name} client: {e}")
+            raise RuntimeError(f"예기치 못한 오류가 발생했습니다. (Error: {e})") from e
+
+    async def get_available_models(self) -> list[str]:
+        """
+        Fetches available models from OpenAI-compatible /v1/models endpoint.
+        """
+        endpoint = f"{self.api_url}/v1/models"
+        try:
+            client = await self._get_client()
+            headers = self._get_headers()
+            logger.debug(f"Fetching {self.provider_name} models from {endpoint}")
+            response = await client.get(endpoint, headers=headers, timeout=10.0)
+            response.raise_for_status()
+            result = response.json()
+            models = [model.get("id") for model in result.get("data", []) if model.get("id")]
+            logger.info(f"Fetched available {self.provider_name} models: {models}")
+            return models
+        except Exception as e:
+            logger.error(f"Failed to fetch available models from {self.provider_name}: {e}")
+            return []
+
+    async def close(self):
+        """Disposes of the long-lived client connection pool gracefully."""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            logger.info(f"Shared persistent connection pool closed for {self.provider_name}Client.")
 
 
 class OllamaClient(BaseLLMClient):
@@ -108,88 +202,33 @@ class OllamaClient(BaseLLMClient):
             logger.info("Shared persistent connection pool closed for OllamaClient.")
 
 
-class OpenAICompatibleClient(BaseLLMClient):
+class OpenAICompatibleClient(BaseOpenAICompatibleClient):
     """
     Client for OpenAI-compatible local APIs (vLLM, Llama.cpp, LocalAI, etc.)
-    hitting the /v1/chat/completions endpoint.
+    that does not require an API key by default.
     """
     def __init__(self, api_url: str, model: str, provider_name: str = "OpenAICompatible", timeout: Optional[float] = 300.0):
-        self.api_url = api_url.rstrip('/')
-        self.model = model
-        self.timeout = timeout
-        self.provider_name = provider_name
-        self._client: Optional[httpx.AsyncClient] = None
-        logger.info(f"{provider_name}Client initialized with URL: {self.api_url}, model: {self.model}, timeout: {self.timeout}")
+        super().__init__(
+            api_url=api_url,
+            model=model,
+            api_key=None,
+            provider_name=provider_name,
+            timeout=timeout
+        )
 
-    async def _get_client(self) -> httpx.AsyncClient:
-        """Lazily instantiates and returns a persistent shared httpx.AsyncClient."""
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient()  # Single shared instance
-            logger.info(f"Shared persistent connection pool initialized for {self.provider_name}Client.")
-        return self._client
 
-    async def generate_response(self, prompt: str, system_prompt: Optional[str] = None, history: Optional[list[dict]] = None) -> str:
-        endpoint = f"{self.api_url}/v1/chat/completions"
-        
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        if history:
-            messages.extend(history)
-        messages.append({"role": "user", "content": prompt})
-
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "stream": False
-        }
-
-        try:
-            client = await self._get_client()
-            logger.debug(f"Sending request to OpenAI-compatible endpoint: {endpoint}")
-            # Dynamically pass self.timeout on each request to allow real-time changes
-            response = await client.post(endpoint, json=payload, timeout=self.timeout)
-            response.raise_for_status()
-            
-            result = response.json()
-            choices = result.get("choices", [])
-            if choices:
-                answer = choices[0].get("message", {}).get("content", "")
-                return answer
-            raise ValueError("API가 올바른 대답 형식을 반환하지 않았습니다.")
-        except httpx.TimeoutException as e:
-            logger.error(f"Timeout occurred while contacting LLM: {e}")
-            raise RuntimeError(f"로컬 LLM 응답 요청 시간이 초과되었습니다. (Timeout: {e})") from e
-        except httpx.HTTPError as e:
-            logger.error(f"HTTP error occurred while contacting LLM: {e}")
-            raise RuntimeError(f"로컬 LLM 통신 중 오류가 발생했습니다. (HTTP Error: {e})") from e
-        except Exception as e:
-            logger.error(f"Unexpected error in OpenAI-compatible client: {e}")
-            raise RuntimeError(f"예기치 못한 오류가 발생했습니다. (Error: {e})") from e
-
-    async def get_available_models(self) -> list[str]:
-        """
-        Fetches available models from OpenAI-compatible /v1/models endpoint.
-        """
-        endpoint = f"{self.api_url}/v1/models"
-        try:
-            client = await self._get_client()
-            logger.debug(f"Fetching {self.provider_name} models from {endpoint}")
-            response = await client.get(endpoint, timeout=10.0)
-            response.raise_for_status()
-            result = response.json()
-            models = [model.get("id") for model in result.get("data", []) if model.get("id")]
-            logger.info(f"Fetched available {self.provider_name} models: {models}")
-            return models
-        except Exception as e:
-            logger.error(f"Failed to fetch available models from {self.provider_name}: {e}")
-            return []
-
-    async def close(self):
-        """Disposes of the long-lived client connection pool gracefully."""
-        if self._client and not self._client.is_closed:
-            await self._client.aclose()
-            logger.info(f"Shared persistent connection pool closed for {self.provider_name}Client.")
+class CerebrasClient(BaseOpenAICompatibleClient):
+    """
+    Client for Cerebras Cloud Inference API (OpenAI Compatible with API Key authentication).
+    """
+    def __init__(self, api_url: str, model: str, api_key: str, timeout: Optional[float] = 300.0):
+        super().__init__(
+            api_url=api_url or "https://api.cerebras.ai",
+            model=model,
+            api_key=api_key,
+            provider_name="Cerebras",
+            timeout=timeout
+        )
 
 
 class LLMClientFactory:
@@ -197,10 +236,12 @@ class LLMClientFactory:
     Factory to resolve the concrete BaseLLMClient instance dynamically.
     """
     @staticmethod
-    def get_client(provider: str, api_url: str, model: str, timeout: Optional[float] = 300.0) -> BaseLLMClient:
+    def get_client(provider: str, api_url: str, model: str, timeout: Optional[float] = 300.0, api_key: Optional[str] = None) -> BaseLLMClient:
         prov = provider.upper()
         if prov == "OLLAMA":
             return OllamaClient(api_url, model, timeout=timeout)
+        elif prov == "CEREBRAS":
+            return CerebrasClient(api_url, model, api_key=api_key, timeout=timeout)
         elif prov == "OPENAI_COMPATIBLE":
             return OpenAICompatibleClient(api_url, model, "OpenAICompatible", timeout=timeout)
         elif prov == "LLAMA_CPP":
