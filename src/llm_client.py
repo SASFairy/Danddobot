@@ -35,6 +35,19 @@ class BaseLLMClient:
         """
         pass
 
+    def get_supported_parameter_ranges(self) -> dict:
+        """
+        Returns a dict mapping hyperparameter names to their valid (min, max) ranges,
+        or None if not supported by the provider/client.
+        """
+        return {
+            "temperature": (0.0, 2.0),
+            "max_tokens": (1, 16384),
+            "repeat_penalty": (0.0, 2.0),
+            "top_p": (0.0, 1.0),
+            "top_k": (1, 100)
+        }
+
 
 class BaseOpenAICompatibleClient(BaseLLMClient):
     """
@@ -145,6 +158,19 @@ class BaseOpenAICompatibleClient(BaseLLMClient):
             await self._client.aclose()
             logger.info(f"Shared persistent connection pool closed for {self.provider_name}Client.")
 
+    def get_supported_parameter_ranges(self) -> dict:
+        """
+        Returns a dict mapping hyperparameter names to their valid (min, max) ranges,
+        or None if not supported by the OpenAI spec.
+        """
+        return {
+            "temperature": (0.0, 2.0),
+            "max_tokens": (1, 16384),
+            "repeat_penalty": (1.0, 3.0),  # Maps to frequency_penalty [0.0, 2.0]
+            "top_p": (0.0, 1.0),
+            "top_k": None  # Not supported by OpenAI-compatible APIs
+        }
+
 
 class OllamaClient(BaseLLMClient):
     """
@@ -244,6 +270,19 @@ class OllamaClient(BaseLLMClient):
         if self._client and not self._client.is_closed:
             await self._client.aclose()
             logger.info("Shared persistent connection pool closed for OllamaClient.")
+
+    def get_supported_parameter_ranges(self) -> dict:
+        """
+        Returns a dict mapping hyperparameter names to their valid (min, max) ranges,
+        or None if not supported by Ollama.
+        """
+        return {
+            "temperature": (0.0, 2.0),
+            "max_tokens": (1, 16384),
+            "repeat_penalty": (0.0, 2.0),
+            "top_p": (0.0, 1.0),
+            "top_k": (1, 100)
+        }
 
 
 class OpenAICompatibleClient(BaseOpenAICompatibleClient):

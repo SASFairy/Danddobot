@@ -235,37 +235,87 @@ class LlmParametersEditModal(ui.Modal, title="⚙️ LLM 생성 옵션(하이퍼
         current_top_p = getattr(getattr(client, "llm_client", None), "top_p", None)
         current_top_k = getattr(getattr(client, "llm_client", None), "top_k", None)
         
+        # Fetch active LLM client's supported parameter ranges
+        ranges = {}
+        if hasattr(client, "llm_client") and client.llm_client:
+            ranges = client.llm_client.get_supported_parameter_ranges()
+
+        # 1. Temperature field setup
+        if "temperature" in ranges and ranges["temperature"] is not None:
+            t_min, t_max = ranges["temperature"]
+            t_label = f"온도 (Temperature, {t_min} ~ {t_max} / 빈칸시 기본)"
+            t_placeholder = "예: 0.7 (낮을수록 일관적, 높을수록 창의적)"
+        else:
+            t_label = "[지원 안 함] 온도 (Temperature)"
+            t_placeholder = "현재 프로바이더에서는 지원하지 않습니다."
+
+        # 2. Max Tokens field setup
+        if "max_tokens" in ranges and ranges["max_tokens"] is not None:
+            m_min, m_max = ranges["max_tokens"]
+            m_label = f"최대 토큰 (Max Tokens, {m_min} ~ {m_max} / 빈칸시 기본)"
+            m_placeholder = "예: 1024 (답변의 최대 길이 제한)"
+        else:
+            m_label = "[지원 안 함] 최대 토큰 (Max Tokens)"
+            m_placeholder = "현재 프로바이더에서는 지원하지 않습니다."
+
+        # 3. Repeat Penalty field setup
+        if "repeat_penalty" in ranges and ranges["repeat_penalty"] is not None:
+            r_min, r_max = ranges["repeat_penalty"]
+            r_label = f"반복 패널티 (Repeat Penalty, {r_min} ~ {r_max} / 빈칸시 기본)"
+            r_placeholder = "예: 1.1 (높을수록 중복 표현 억제)"
+        else:
+            r_label = "[지원 안 함] 반복 패널티 (Repeat Penalty)"
+            r_placeholder = "현재 프로바이더에서는 지원하지 않습니다."
+
+        # 4. Top-P field setup
+        if "top_p" in ranges and ranges["top_p"] is not None:
+            p_min, p_max = ranges["top_p"]
+            p_label = f"Top-P (Nucleus Sampling, {p_min} ~ {p_max} / 빈칸시 기본)"
+            p_placeholder = "예: 0.9 (낮을수록 상위 확률 단어만 선택)"
+        else:
+            p_label = "[지원 안 함] Top-P (Nucleus Sampling)"
+            p_placeholder = "현재 프로바이더에서는 지원하지 않습니다."
+
+        # 5. Top-K field setup
+        if "top_k" in ranges and ranges["top_k"] is not None:
+            k_min, k_max = ranges["top_k"]
+            k_label = f"Top-K (Candidates count, {k_min} ~ {k_max} / 빈칸시 기본)"
+            k_placeholder = "예: 40 (높을수록 더 다양한 어휘 탐색)"
+        else:
+            k_label = "[지원 안 함] Top-K (Candidates)"
+            k_placeholder = "현재 프로바이더에서는 지원하지 않습니다."
+
         self.temp_input = ui.TextInput(
-            label="온도 (Temperature, 0.0 ~ 2.0 / 빈칸시 기본값)",
-            placeholder="예: 0.7 (낮을수록 일관적, 높을수록 창의적)",
+            label=t_label,
+            placeholder=t_placeholder,
             default="" if current_temp is None else str(current_temp),
             required=False,
             max_length=5
         )
         self.max_tokens_input = ui.TextInput(
-            label="최대 토큰 (Max Tokens / 빈칸시 기본값)",
-            placeholder="예: 1024 (답변의 최대 길이 제한)",
+            label=m_label,
+            placeholder=m_placeholder,
             default="" if current_max_tokens is None else str(current_max_tokens),
             required=False,
             max_length=6
         )
         self.repeat_penalty_input = ui.TextInput(
-            label="반복 패널티 (Repeat Penalty, 1.0 ~ 2.0 / 빈칸시 기본값)",
-            placeholder="예: 1.1 (높을수록 중복 표현 억제)",
+            label=r_label,
+            placeholder=r_placeholder,
             default="" if current_repeat_penalty is None else str(current_repeat_penalty),
             required=False,
             max_length=5
         )
         self.top_p_input = ui.TextInput(
-            label="Top-P (Nucleus Sampling, 0.0 ~ 1.0 / 빈칸시 기본값)",
-            placeholder="예: 0.9 (낮을수록 상위 확률 단어만 선택)",
+            label=p_label,
+            placeholder=p_placeholder,
             default="" if current_top_p is None else str(current_top_p),
             required=False,
             max_length=5
         )
         self.top_k_input = ui.TextInput(
-            label="Top-K (Candidates count, 1 이상 정수 / 빈칸시 기본값)",
-            placeholder="예: 40 (높을수록 더 다양한 어휘 탐색)",
+            label=k_label,
+            placeholder=k_placeholder,
             default="" if current_top_k is None else str(current_top_k),
             required=False,
             max_length=5
@@ -286,13 +336,22 @@ class LlmParametersEditModal(ui.Modal, title="⚙️ LLM 생성 옵션(하이퍼
         top_p_val = None
         top_k_val = None
         
+        # Fetch active LLM client's supported parameter ranges for validation
+        ranges = {}
+        if hasattr(client, "llm_client") and client.llm_client:
+            ranges = client.llm_client.get_supported_parameter_ranges()
+
         # 1. Parse Temperature
         temp_str = self.temp_input.value.strip()
         if temp_str:
+            if "temperature" not in ranges or ranges["temperature"] is None:
+                await interaction.response.send_message("❌ 현재 프로바이더/모델은 온도(Temperature) 설정을 지원하지 않습니다.", ephemeral=True)
+                return
             try:
                 temp_val = float(temp_str)
-                if temp_val < 0.0 or temp_val > 2.0:
-                    await interaction.response.send_message("❌ 온도는 0.0에서 2.0 사이의 숫자여야 합니다.", ephemeral=True)
+                t_min, t_max = ranges["temperature"]
+                if temp_val < t_min or temp_val > t_max:
+                    await interaction.response.send_message(f"❌ 온도는 {t_min}에서 {t_max} 사이의 숫자여야 합니다.", ephemeral=True)
                     return
             except ValueError:
                 await interaction.response.send_message("❌ 온도는 올바른 실수여야 합니다.", ephemeral=True)
@@ -301,10 +360,14 @@ class LlmParametersEditModal(ui.Modal, title="⚙️ LLM 생성 옵션(하이퍼
         # 2. Parse Max Tokens
         max_tokens_str = self.max_tokens_input.value.strip()
         if max_tokens_str:
+            if "max_tokens" not in ranges or ranges["max_tokens"] is None:
+                await interaction.response.send_message("❌ 현재 프로바이더/모델은 최대 토큰(Max Tokens) 설정을 지원하지 않습니다.", ephemeral=True)
+                return
             try:
                 max_tokens_val = int(max_tokens_str)
-                if max_tokens_val <= 0:
-                    await interaction.response.send_message("❌ 최대 토큰은 0보다 큰 정수여야 합니다.", ephemeral=True)
+                m_min, m_max = ranges["max_tokens"]
+                if max_tokens_val < m_min or max_tokens_val > m_max:
+                    await interaction.response.send_message(f"❌ 최대 토큰은 {m_min}에서 {m_max} 사이의 정수여야 합니다.", ephemeral=True)
                     return
             except ValueError:
                 await interaction.response.send_message("❌ 최대 토큰은 올바른 정수여야 합니다.", ephemeral=True)
@@ -313,10 +376,14 @@ class LlmParametersEditModal(ui.Modal, title="⚙️ LLM 생성 옵션(하이퍼
         # 3. Parse Repeat Penalty
         rep_penalty_str = self.repeat_penalty_input.value.strip()
         if rep_penalty_str:
+            if "repeat_penalty" not in ranges or ranges["repeat_penalty"] is None:
+                await interaction.response.send_message("❌ 현재 프로바이더/모델은 반복 패널티(Repeat Penalty) 설정을 지원하지 않습니다.", ephemeral=True)
+                return
             try:
                 rep_penalty_val = float(rep_penalty_str)
-                if rep_penalty_val < 1.0:
-                    await interaction.response.send_message("❌ 반복 패널티는 1.0 이상의 숫자여야 합니다.", ephemeral=True)
+                r_min, r_max = ranges["repeat_penalty"]
+                if rep_penalty_val < r_min or rep_penalty_val > r_max:
+                    await interaction.response.send_message(f"❌ 반복 패널티는 {r_min}에서 {r_max} 사이의 숫자여야 합니다.", ephemeral=True)
                     return
             except ValueError:
                 await interaction.response.send_message("❌ 반복 패널티는 올바른 실수여야 합니다.", ephemeral=True)
@@ -325,10 +392,14 @@ class LlmParametersEditModal(ui.Modal, title="⚙️ LLM 생성 옵션(하이퍼
         # 4. Parse Top-P
         top_p_str = self.top_p_input.value.strip()
         if top_p_str:
+            if "top_p" not in ranges or ranges["top_p"] is None:
+                await interaction.response.send_message("❌ 현재 프로바이더/모델은 Top-P 설정을 지원하지 않습니다.", ephemeral=True)
+                return
             try:
                 top_p_val = float(top_p_str)
-                if top_p_val < 0.0 or top_p_val > 1.0:
-                    await interaction.response.send_message("❌ Top-P는 0.0에서 1.0 사이의 숫자여야 합니다.", ephemeral=True)
+                p_min, p_max = ranges["top_p"]
+                if top_p_val < p_min or top_p_val > p_max:
+                    await interaction.response.send_message(f"❌ Top-P는 {p_min}에서 {p_max} 사이의 숫자여야 합니다.", ephemeral=True)
                     return
             except ValueError:
                 await interaction.response.send_message("❌ Top-P는 올바른 실수여야 합니다.", ephemeral=True)
@@ -337,10 +408,14 @@ class LlmParametersEditModal(ui.Modal, title="⚙️ LLM 생성 옵션(하이퍼
         # 5. Parse Top-K
         top_k_str = self.top_k_input.value.strip()
         if top_k_str:
+            if "top_k" not in ranges or ranges["top_k"] is None:
+                await interaction.response.send_message("❌ 현재 프로바이더/모델은 Top-K 설정을 지원하지 않습니다.", ephemeral=True)
+                return
             try:
                 top_k_val = int(top_k_str)
-                if top_k_val <= 0:
-                    await interaction.response.send_message("❌ Top-K는 1 이상의 정수여야 합니다.", ephemeral=True)
+                k_min, k_max = ranges["top_k"]
+                if top_k_val < k_min or top_k_val > k_max:
+                    await interaction.response.send_message(f"❌ Top-K는 {k_min}에서 {k_max} 사이의 정수여야 합니다.", ephemeral=True)
                     return
             except ValueError:
                 await interaction.response.send_message("❌ Top-K는 올바른 정수여야 합니다.", ephemeral=True)
