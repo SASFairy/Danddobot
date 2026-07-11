@@ -115,3 +115,42 @@ class AppConfig:
                 logger.warning(
                     f"LOG_CHANNEL_ID must be a valid integer or blank. Received: '{log_channel_id_raw}'. Dedicated log channel will be disabled."
                 )
+
+        # 4. RAG Configuration
+        self.rag_enabled = os.getenv("RAG_ENABLED", "FALSE").upper() == "TRUE"
+        self.rag_knowledge_dir = os.getenv("RAG_KNOWLEDGE_DIR", "config/knowledge")
+        
+        # Parse RAG TOP_K
+        rag_top_k_raw = os.getenv("RAG_TOP_K")
+        self.rag_top_k = 3
+        if rag_top_k_raw and rag_top_k_raw.strip():
+            try:
+                self.rag_top_k = int(rag_top_k_raw)
+            except ValueError:
+                logger.warning(f"RAG_TOP_K must be a valid integer. Received: '{rag_top_k_raw}'. Defaulting to 3.")
+                
+        # Parse RAG MAX_CHARS
+        rag_max_chars_raw = os.getenv("RAG_MAX_CHARS")
+        self.rag_max_chars = 1500
+        if rag_max_chars_raw and rag_max_chars_raw.strip():
+            try:
+                self.rag_max_chars = int(rag_max_chars_raw)
+            except ValueError:
+                logger.warning(f"RAG_MAX_CHARS must be a valid integer. Received: '{rag_max_chars_raw}'. Defaulting to 1500.")
+
+        # Parse RAG CHUNK_SIZE
+        rag_chunk_size_raw = os.getenv("RAG_CHUNK_SIZE")
+        self.rag_chunk_size = 500
+        if rag_chunk_size_raw and rag_chunk_size_raw.strip():
+            try:
+                self.rag_chunk_size = int(rag_chunk_size_raw)
+            except ValueError:
+                logger.warning(f"RAG_CHUNK_SIZE must be a valid integer. Received: '{rag_chunk_size_raw}'. Defaulting to 500.")
+
+        # Safety boundary: chunk_size shouldn't exceed max_chars to avoid empty context deliveries
+        if self.rag_chunk_size > self.rag_max_chars:
+            logger.warning(f"RAG_CHUNK_SIZE ({self.rag_chunk_size}) is greater than RAG_MAX_CHARS ({self.rag_max_chars}). Automatically capping chunk_size to {self.rag_max_chars} to ensure retrieval delivery.")
+            self.rag_chunk_size = self.rag_max_chars
+
+        logger.info(f"RAG Configuration Loaded - Enabled: {self.rag_enabled}, Directory: {self.rag_knowledge_dir}, Top-K: {self.rag_top_k}, Max Characters: {self.rag_max_chars}, Chunk Size Limit: {self.rag_chunk_size}")
+

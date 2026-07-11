@@ -51,6 +51,11 @@ class DanddobotClient(discord.Client):
                  state_manager: StateManager, admin_channel_id: Optional[int] = None, 
                  log_channel_id: Optional[int] = None, provider_urls: Optional[Dict[str, str]] = None,
                  cerebras_api_key: Optional[str] = None,
+                 rag_enabled: bool = False,
+                 rag_knowledge_dir: str = "config/knowledge",
+                 rag_top_k: int = 3,
+                 rag_max_chars: int = 1500,
+                 rag_chunk_size: int = 500,
                  *args, **kwargs):
         # We require message_content intents to read user messages
         intents = discord.Intents.default()
@@ -112,6 +117,16 @@ class DanddobotClient(discord.Client):
         from src.bot_settings import BotSettingsController
         self.settings = BotSettingsController(self)
 
+        # Initialize RAG (Retrieval-Augmented Generation) Manager
+        from src.rag.manager import RAGManager
+        self.rag_manager = RAGManager(
+            is_enabled=rag_enabled,
+            knowledge_dir=rag_knowledge_dir,
+            top_k=rag_top_k,
+            max_chars=rag_max_chars,
+            chunk_size=rag_chunk_size
+        )
+
         logger.info(
             f"DanddobotClient initialized. Active channel: {self.active_channel_id}, "
             f"Registered channels: {list(self.registered_channels.keys())}, "
@@ -119,7 +134,8 @@ class DanddobotClient(discord.Client):
             f"Log channel: {self.log_channel_id}, "
             f"Memory Enabled: {self.use_memory} (Max capacity: {self.max_memory_length}), "
             f"Debug Mode Enabled: {self.debug_mode}, "
-            f"Distinguish Users Enabled: {self.distinguish_users}"
+            f"Distinguish Users Enabled: {self.distinguish_users}, "
+            f"RAG Enabled: {self.rag_manager.is_enabled} (Directory: {rag_knowledge_dir}, Top-K: {rag_top_k}, MaxChars: {rag_max_chars}, ChunkSize: {self.rag_manager.chunk_size})"
         )
 
     async def on_ready(self):
@@ -287,6 +303,17 @@ class DanddobotClient(discord.Client):
 
             # Use cached system prompt (hot-reloaded dynamically from memory)
             system_prompt = self.persona_prompt
+
+            # Retrieve RAG context if enabled
+            if self.rag_manager.is_enabled:
+                rag_context = self.rag_manager.retrieve_context(user_content)
+                if rag_context:
+                    system_prompt = (
+                        f"{self.persona_prompt}\n\n"
+                        f"[필독 참고 정보]\n"
+                        f"이용자의 질문에 답변할 때 다음의 참고 가이드를 사실에 기초해 영리하게 이용해 답변하십시오:\n"
+                        f"{rag_context}"
+                    )
 
             # Load history context if memory is enabled
             history = None

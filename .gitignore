@@ -41,6 +41,11 @@ config/persona.txt
 config/channels.txt
 config/state.json
 
+# RAG Knowledge documents (Keep example tracked, ignore real files)
+config/knowledge/*
+!config/knowledge/
+!config/knowledge/bot_manual.txt.example
+
 # Local personal documentation
 README.local.md
 
