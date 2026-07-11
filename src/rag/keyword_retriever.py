@@ -40,24 +40,37 @@ class SimpleKeywordRetriever(BaseRetriever):
             score = 0.0
             matched_tokens = set()
             
-            # 1. 한국어 교착어(조사 결합)를 고려한 형태소 부분 일치 분석 ('동규에'와 '동규' 매칭)
+            # 1. 한국어 교착어(조사 및 어미 결합)를 고려한 전방 공통 접두사(어근) 일치 분석
+            # (한국어 조사는 항상 단어 뒤(접미사)에 붙으므로 앞부분 2글자 이상이 공통되면 같은 어근으로 판별합니다)
             for q_token in query_tokens:
                 for d_token in doc_tokens:
                     # 완전 일치하는 경우 최고 우선 점수 부여
                     if q_token == d_token:
                         score += 2.0
                         matched_tokens.add(q_token)
-                    # 조사/어미가 달라지는 부분 일치 처리 (최소 2글자 이상 겹칠 때만 매칭하여 조사 오동작 방지)
-                    elif q_token in d_token or d_token in q_token:
-                        overlap_len = min(len(q_token), len(d_token))
-                        if overlap_len >= 2:
+                    else:
+                        # 공통 접두사 길이 계산
+                        prefix_len = 0
+                        for i in range(min(len(q_token), len(d_token))):
+                            if q_token[i] == d_token[i]:
+                                prefix_len += 1
+                            else:
+                                break
+                        
+                        if prefix_len >= 2:
                             score += 1.0
                             matched_tokens.add(q_token)
             
             # 2. 매칭된 키워드가 문서 내에 중복해서 등장할 경우 추가 빈도 가중치 부여
             for q_token in matched_tokens:
                 for d_token in doc_tokens:
-                    if q_token == d_token or q_token in d_token or d_token in q_token:
+                    prefix_len = 0
+                    for i in range(min(len(q_token), len(d_token))):
+                        if q_token[i] == d_token[i]:
+                            prefix_len += 1
+                        else:
+                            break
+                    if q_token == d_token or prefix_len >= 2:
                         score += 0.5
                         
             if score > 0:
@@ -65,4 +78,4 @@ class SimpleKeywordRetriever(BaseRetriever):
 
         # 점수가 높은 순으로 내림차순 정렬 후 최상위 K개 반환
         scored_docs.sort(key=lambda x: x[0], reverse=True)
-        return [doc[1] for _, doc in scored_docs[:top_k]]
+        return [doc for _, doc in scored_docs[:top_k]]
