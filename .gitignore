@@ -44,3 +44,7 @@ config/state.json
 # Local personal documentation
 README.local.md
 
+# Databases
+*.db
+game_database.db
+

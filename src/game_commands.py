@@ -459,17 +459,6 @@ def setup_game_commands(client: discord.Client):
                         ephemeral=True
                     )
                     return
-                    
-            if opponent.id in RPS_COOLDOWNS:
-                diff = now - RPS_COOLDOWNS[opponent.id]
-                if diff.total_seconds() < 300:
-                    remaining = int(300 - diff.total_seconds())
-                    await interaction.response.send_message(
-                        f"❌ 상대방 `{opponent.display_name}`님이 최근 승부를 겨뤄 현재 대결 불가 상태입니다옹!\n"
-                        f"• 상대방 쿨다운 잔여시간: **{remaining}초**",
-                        ephemeral=True
-                    )
-                    return
 
             # Lock players in active set
             ACTIVE_RPS_PLAYERS.add(challenger.id)
@@ -743,125 +732,138 @@ class RPSAcceptView(discord.ui.View):
             
     @discord.ui.button(label="🟢 대결 수락", style=discord.ButtonStyle.success)
     async def accept_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-DEBUG] Accept button clicked by: {interaction.user.display_name} ({interaction.user.id})"))
-        if interaction.user.id != self.opponent.id:
-            asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-DEBUG] Rejecting accept click: User {interaction.user.display_name} is not the designated opponent {self.opponent.display_name}"))
-            await interaction.response.send_message(f"❌ 도전 대상자 파트너인 {self.opponent.display_name}님만 수락할 수 있습니다옹!", ephemeral=True)
-            return
-            
-        # Cancel the accept view timeout
-        asyncio.create_task(send_rps_debug_log(self.client, "[RPS-DEBUG] Correct opponent clicked Accept. Stopping view timeout timer."))
-        self.stop()
-        
-        # Double check money and registration on acceptance
-        db = self.client.db
-        asyncio.create_task(send_rps_debug_log(self.client, "[RPS-DEBUG] Verifying balances in database before starting match..."))
-        u_challenger = await db.get_user(self.challenger.id)
-        u_opponent = await db.get_user(self.opponent.id)
-        
-        if not u_challenger or u_challenger["money"] < self.bet_amount:
-            asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-DEBUG] Match Aborted: Challenger {self.challenger.display_name} balance too low or not registered."))
-            ACTIVE_RPS_PLAYERS.discard(self.challenger.id)
-            ACTIVE_RPS_PLAYERS.discard(self.opponent.id)
-            
-            # Primary response: edit the message to failed status
-            embed = discord.Embed(title="❌ 경기 진행 무산", description=f"신청자 {self.challenger.display_name}님의 자산 부족 문제로 취소되었습니다옹.", color=0xE74C3C)
-            await interaction.response.edit_message(embed=embed, view=None)
-            
-            # Secondary response: send ephemeral error explanation
-            try:
-                await interaction.followup.send(f"❌ 신청자 {self.challenger.display_name}님의 보유 자산이 신청 시점과 달리 모자라 경기 진행이 불가능합니다옹!", ephemeral=True)
-            except Exception:
-                pass
-            return
-            
-        if not u_opponent or u_opponent["money"] < self.bet_amount:
-            asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-DEBUG] Match Aborted: Opponent {self.opponent.display_name} balance too low or not registered."))
-            ACTIVE_RPS_PLAYERS.discard(self.challenger.id)
-            ACTIVE_RPS_PLAYERS.discard(self.opponent.id)
-            
-            # Primary response: edit the message to failed status
-            embed = discord.Embed(title="❌ 경기 진행 무산", description=f"수락자 {self.opponent.display_name}님의 자산 부족 문제로 취소되었습니다옹.", color=0xE74C3C)
-            await interaction.response.edit_message(embed=embed, view=None)
-            
-            # Secondary response: send ephemeral error explanation
-            try:
-                await interaction.followup.send("❌ 본인의 미니게임 가입 보유 자산이 배팅액 대비 부족하여 수락이 불가능하다옹!", ephemeral=True)
-            except Exception:
-                pass
-            return
-            
-        # Update cooldown timestamp to current time for both players to lock them
-        now = datetime.datetime.now()
-        RPS_COOLDOWNS[self.challenger.id] = now
-        RPS_COOLDOWNS[self.opponent.id] = now
-        asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-DEBUG] Cooldown timestamp locked for players."))
-        
-        # We start the game session
-        asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-DEBUG] Creating RPSGameSession object..."))
-        session = RPSGameSession(self.client, self.challenger, self.opponent, self.bet_amount, interaction.message)
-        
-        # Update public message to choice state (primary response)
-        embed = discord.Embed(
-            title="✊✌️✋ 선택 페이즈 시작!",
-            description=f"### 두 플레이어는 10초 이내에 자신의 숨겨진 선택지를 클릭해야 합니다옹!\n\n"
-                        f"• **신청자**: {self.challenger.mention}\n"
-                        f"• **수락자**: {self.opponent.mention}\n"
-                        f"• **배팅 판돈**: `{self.bet_amount:,}원`\n\n"
-                        f"⚠️ **주의**: 아래 본인의 이름이 들어간 버튼을 눌러 나오는 나만 보기 화면에서 가위, 바위, 보 중 하나를 10초 이내에 눌러야 합니다!",
-            color=0xF39C12
-        )
-        view = RPSMainChoiceView(self.client, session)
-        asyncio.create_task(send_rps_debug_log(self.client, "[RPS-DEBUG] Editing board message to Choice Phase and launching RPSMainChoiceView."))
-        await interaction.response.edit_message(embed=embed, view=view)
-        
-        # Send ephemeral choice response to opponent B immediately using followup
         try:
-            asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-DEBUG] Sending private choice panel to opponent B {self.opponent.display_name} via followup..."))
-            await interaction.followup.send(
-                "✅ 대결을 수락하셨습니다옹!\n아래 바위, 가위, 보 중 하나를 **10초 이내**에 선택해 주세요!",
-                view=RPSIndividualChoiceView(self.opponent.id, session),
-                ephemeral=True
+            asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-DEBUG] Accept button clicked by: {interaction.user.display_name} ({interaction.user.id})"))
+            if interaction.user.id != self.opponent.id:
+                asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-DEBUG] Rejecting accept click: User {interaction.user.display_name} is not the designated opponent {self.opponent.display_name}"))
+                await interaction.response.send_message(f"❌ 도전 대상자 파트너인 {self.opponent.display_name}님만 수락할 수 있습니다옹!", ephemeral=True)
+                return
+                
+            # Cancel the accept view timeout
+            asyncio.create_task(send_rps_debug_log(self.client, "[RPS-DEBUG] Correct opponent clicked Accept. Stopping view timeout timer."))
+            self.stop()
+            
+            # Double check money and registration on acceptance
+            db = self.client.db
+            asyncio.create_task(send_rps_debug_log(self.client, "[RPS-DEBUG] Verifying balances in database before starting match..."))
+            u_challenger = await db.get_user(self.challenger.id)
+            u_opponent = await db.get_user(self.opponent.id)
+            
+            if not u_challenger or u_challenger["money"] < self.bet_amount:
+                asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-DEBUG] Match Aborted: Challenger {self.challenger.display_name} balance too low or not registered."))
+                ACTIVE_RPS_PLAYERS.discard(self.challenger.id)
+                ACTIVE_RPS_PLAYERS.discard(self.opponent.id)
+                
+                # Primary response: edit the message to failed status
+                embed = discord.Embed(title="❌ 경기 진행 무산", description=f"신청자 {self.challenger.display_name}님의 자산 부족 문제로 취소되었습니다옹.", color=0xE74C3C)
+                await interaction.response.edit_message(embed=embed, view=None)
+                
+                # Secondary response: send ephemeral error explanation
+                try:
+                    await interaction.followup.send(f"❌ 신청자 {self.challenger.display_name}님의 보유 자산이 신청 시점과 달리 모자라 경기 진행이 불가능합니다옹!", ephemeral=True)
+                except Exception:
+                    pass
+                return
+                
+            if not u_opponent or u_opponent["money"] < self.bet_amount:
+                asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-DEBUG] Match Aborted: Opponent {self.opponent.display_name} balance too low or not registered."))
+                ACTIVE_RPS_PLAYERS.discard(self.challenger.id)
+                ACTIVE_RPS_PLAYERS.discard(self.opponent.id)
+                
+                # Primary response: edit the message to failed status
+                embed = discord.Embed(title="❌ 경기 진행 무산", description=f"수락자 {self.opponent.display_name}님의 자산 부족 문제로 취소되었습니다옹.", color=0xE74C3C)
+                await interaction.response.edit_message(embed=embed, view=None)
+                
+                # Secondary response: send ephemeral error explanation
+                try:
+                    await interaction.followup.send("❌ 본인의 미니게임 가입 보유 자산이 배팅액 대비 부족하여 수락이 불가능하다옹!", ephemeral=True)
+                except Exception:
+                    pass
+                return
+                
+            # Update cooldown timestamp strictly for the challenger who initiated the challenge
+            now = datetime.datetime.now()
+            RPS_COOLDOWNS[self.challenger.id] = now
+            asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-DEBUG] Cooldown timestamp locked strictly for Challenger {self.challenger.display_name}."))
+            
+            # We start the game session
+            asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-DEBUG] Creating RPSGameSession object..."))
+            session = RPSGameSession(self.client, self.challenger, self.opponent, self.bet_amount, interaction.message)
+            
+            # Update public message to choice state (primary response)
+            embed = discord.Embed(
+                title="✊✌️✋ 선택 페이즈 시작!",
+                description=f"### 두 플레이어는 10초 이내에 자신의 숨겨진 선택지를 클릭해야 합니다옹!\n\n"
+                            f"• **신청자**: {self.challenger.mention}\n"
+                            f"• **수락자**: {self.opponent.mention}\n"
+                            f"• **배팅 판돈**: `{self.bet_amount:,}원`\n\n"
+                            f"⚠️ **주의**: 아래 본인의 이름이 들어간 버튼을 눌러 나오는 나만 보기 화면에서 가위, 바위, 보 중 하나를 10초 이내에 눌러야 합니다!",
+                color=0xF39C12
             )
-            asyncio.create_task(send_rps_debug_log(self.client, "[RPS-DEBUG] Private choice panel sent successfully to B."))
-        except Exception as followup_err:
-            asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-DEBUG] Failed to send opponent B followup choice message: {followup_err}"))
-        
-        # Start the 10-second game countdown in the background
-        asyncio.create_task(send_rps_debug_log(self.client, "[RPS-DEBUG] Starting 10-second background countdown task."))
-        asyncio.create_task(view.start_countdown())
-        
+            view = RPSMainChoiceView(self.client, session)
+            asyncio.create_task(send_rps_debug_log(self.client, "[RPS-DEBUG] Editing board message to Choice Phase and launching RPSMainChoiceView."))
+            await interaction.response.edit_message(embed=embed, view=view)
+            
+            # Send ephemeral choice response to opponent B immediately using followup
+            try:
+                asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-DEBUG] Sending private choice panel to opponent B {self.opponent.display_name} via followup..."))
+                await interaction.followup.send(
+                    "✅ 대결을 수락하셨습니다옹!\n아래 바위, 가위, 보 중 하나를 **10초 이내**에 선택해 주세요!",
+                    view=RPSIndividualChoiceView(self.opponent.id, session),
+                    ephemeral=True
+                )
+                asyncio.create_task(send_rps_debug_log(self.client, "[RPS-DEBUG] Private choice panel sent successfully to B."))
+            except Exception as followup_err:
+                asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-DEBUG] Failed to send opponent B followup choice message: {followup_err}"))
+            
+            # Start the 10-second game countdown in the background
+            asyncio.create_task(send_rps_debug_log(self.client, "[RPS-DEBUG] Starting 10-second background countdown task."))
+            asyncio.create_task(view.start_countdown())
+        except Exception as e:
+            asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-CRITICAL-ERROR] Exception inside accept_btn: {e}"))
+            ACTIVE_RPS_PLAYERS.discard(self.challenger.id)
+            ACTIVE_RPS_PLAYERS.discard(self.opponent.id)
+            try:
+                await interaction.followup.send("❌ 가위바위보 수락 처리 과정 중 에러가 발생하여 대결이 취소되었습니다옹!", ephemeral=True)
+            except Exception:
+                pass
+            
     @discord.ui.button(label="🔴 대결 거절", style=discord.ButtonStyle.secondary)
     async def decline_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-DEBUG] Decline button clicked by: {interaction.user.display_name} ({interaction.user.id})"))
-        if interaction.user.id != self.opponent.id and interaction.user.id != self.challenger.id:
-            asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-DEBUG] Rejecting decline click: User {interaction.user.display_name} is not challenger or opponent."))
-            await interaction.response.send_message("❌ 이 매치에 관여된 플레이어만 판돈 거절을 누를 수 있습니다옹!", ephemeral=True)
-            return
-            
-        self.stop()
-        asyncio.create_task(send_rps_debug_log(self.client, "[RPS-DEBUG] Declining match. Unlocking players and updating board message."))
-        
-        ACTIVE_RPS_PLAYERS.discard(self.challenger.id)
-        ACTIVE_RPS_PLAYERS.discard(self.opponent.id)
-        
-        who = "상대방" if interaction.user.id == self.opponent.id else "신청자"
-        embed = discord.Embed(
-            title="❌ 가위바위보 대결 거절됨",
-            description=f"{who} {interaction.user.mention}님이 세기의 가위바위보 대결 매치를 취소/거절하셨습니다옹!",
-            color=0xE74C3C
-        )
-        
-        # Primary response: edit message to show declined status and remove buttons
-        await interaction.response.edit_message(embed=embed, view=None)
-        asyncio.create_task(send_rps_debug_log(self.client, "[RPS-DEBUG] Decline board message updated."))
-        
-        # Secondary response: send ephemeral confirmation
         try:
-            await interaction.followup.send("✅ 대결 거절/취소 처리가 완료되었습니다.", ephemeral=True)
-            asyncio.create_task(send_rps_debug_log(self.client, "[RPS-DEBUG] Private decline confirmation sent."))
-        except Exception:
-            pass
+            asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-DEBUG] Decline button clicked by: {interaction.user.display_name} ({interaction.user.id})"))
+            if interaction.user.id != self.opponent.id and interaction.user.id != self.challenger.id:
+                asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-DEBUG] Rejecting decline click: User {interaction.user.display_name} is not challenger or opponent."))
+                await interaction.response.send_message("❌ 이 매치에 관여된 플레이어만 판돈 거절을 누를 수 있습니다옹!", ephemeral=True)
+                return
+                
+            self.stop()
+            asyncio.create_task(send_rps_debug_log(self.client, "[RPS-DEBUG] Declining match. Unlocking players and updating board message."))
+            
+            ACTIVE_RPS_PLAYERS.discard(self.challenger.id)
+            ACTIVE_RPS_PLAYERS.discard(self.opponent.id)
+            
+            who = "상대방" if interaction.user.id == self.opponent.id else "신청자"
+            embed = discord.Embed(
+                title="❌ 가위바위보 대결 거절됨",
+                description=f"{who} {interaction.user.mention}님이 세기의 가위바위보 대결 매치를 취소/거절하셨습니다옹!",
+                color=0xE74C3C
+            )
+            
+            # Primary response: edit message to show declined status and remove buttons
+            await interaction.response.edit_message(embed=embed, view=None)
+            asyncio.create_task(send_rps_debug_log(self.client, "[RPS-DEBUG] Decline board message updated."))
+            
+            # Secondary response: send ephemeral confirmation
+            try:
+                await interaction.followup.send("✅ 대결 거절/취소 처리가 완료되었습니다.", ephemeral=True)
+                asyncio.create_task(send_rps_debug_log(self.client, "[RPS-DEBUG] Private decline confirmation sent."))
+            except Exception:
+                pass
+        except Exception as e:
+            asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-CRITICAL-ERROR] Exception inside decline_btn: {e}"))
+            ACTIVE_RPS_PLAYERS.discard(self.challenger.id)
+            ACTIVE_RPS_PLAYERS.discard(self.opponent.id)
 
 
 class RPSMainChoiceView(discord.ui.View):
