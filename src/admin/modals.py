@@ -46,6 +46,9 @@ class PersonaEditModal(ui.Modal, title="🤖 페르소나(시스템 프롬프트
             
             logger.info(f"Persona updated via Modal by user {interaction.user} (ID: {interaction.user.id})")
             
+            # Update the cached prompt dynamically
+            await self.client.update_persona_prompt(new_content)
+            
             # Update the dashboard message
             embed = build_dashboard_embed(self.client, status_msg="페르소나 수정 및 재로드 완료")
             await interaction.message.edit(embed=embed)

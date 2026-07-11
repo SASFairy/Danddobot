@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import asyncio
+import io
 import discord
 import time
 from typing import Dict, List, Optional
@@ -101,6 +102,9 @@ class DanddobotClient(discord.Client):
         current_model = getattr(self.llm_client, "model", "unknown")
         self.available_models: List[str] = [current_model] if current_model != "unknown" else []
 
+        # Initialize cached persona prompt
+        self.persona_prompt: str = self.load_persona()
+
         # Initialize CommandTree for application commands (slash commands)
         self.tree = discord.app_commands.CommandTree(self)
 
@@ -145,6 +149,11 @@ class DanddobotClient(discord.Client):
         await self.state_manager.set_value("distinguish_users", self.distinguish_users)
         logger.info(f"User distinction toggled and persisted: {self.distinguish_users}")
         return self.distinguish_users
+
+    async def update_persona_prompt(self, new_prompt: str):
+        """Updates the cached persona system prompt dynamically in-memory."""
+        self.persona_prompt = new_prompt
+        logger.info("Persona cache successfully updated in-memory.")
 
     async def set_max_memory_length(self, limit: int):
         """Sets the conversational memory history size and persists using StateManager."""
@@ -430,8 +439,8 @@ class DanddobotClient(discord.Client):
             else:
                 user_content_for_llm = user_content
 
-            # Load system prompt dynamically
-            system_prompt = self.load_persona()
+            # Use cached system prompt (hot-reloaded dynamically from memory)
+            system_prompt = self.persona_prompt
 
             # Load history context if memory is enabled
             history = None
@@ -532,15 +541,29 @@ class DanddobotClient(discord.Client):
                 provider = self.state_manager.get_value("llm_provider", "Unknown")
                 model_name = getattr(self.llm_client, "model", "Unknown")
 
-            # Slice prompt and response for Discord Embed limits (1024 characters max per field value)
-            safe_prompt = prompt[:1000] + (" ... (truncated)" if len(prompt) > 1000 else "")
+            # Create lists for any fallback text attachments
+            files = []
+            
+            # Slice prompt for Discord Embed limits (1024 characters max per field value)
+            if len(prompt) > 1000:
+                prompt_bytes = io.BytesIO(prompt.encode('utf-8'))
+                files.append(discord.File(fp=prompt_bytes, filename="full_prompt.txt"))
+                safe_prompt = prompt[:1000] + "\n\n⚠️ 프롬프트가 너무 길어 전문은 첨부파일을 참조하십시오."
+            else:
+                safe_prompt = prompt
             
             if is_error:
                 safe_response = f"❌ **오류 발생**: `{error_message}`"
                 color = 0xE74C3C  # Red for error
                 title = "🔧 디버그 로그 (실패)"
             else:
-                safe_response = (response or "")[:1000] + (" ... (truncated)" if len(response or "") > 1000 else "")
+                raw_response = response or ""
+                if len(raw_response) > 1000:
+                    resp_bytes = io.BytesIO(raw_response.encode('utf-8'))
+                    files.append(discord.File(fp=resp_bytes, filename="full_response.txt"))
+                    safe_response = raw_response[:1000] + "\n\n⚠️ 답변이 너무 길어 전문은 첨부파일을 참조하십시오."
+                else:
+                    safe_response = raw_response
                 color = 0x3498DB  # Blue for success
                 title = "🔧 디버그 로그 (성공)"
 
@@ -580,7 +603,10 @@ class DanddobotClient(discord.Client):
             embed.add_field(name="📝 프롬프트 (Raw Prompt)", value=f"```\n{safe_prompt}\n```", inline=False)
             embed.add_field(name="📤 생성된 답변 (Response)", value=f"```\n{safe_response}\n```", inline=False)
 
-            await log_channel.send(embed=embed)
+            if files:
+                await log_channel.send(embed=embed, files=files)
+            else:
+                await log_channel.send(embed=embed)
             logger.debug("Successfully dispatched debug log embed to log channel.")
         except Exception as e:
             logger.error(f"Failed to send debug log embed: {e}")
