@@ -793,28 +793,26 @@ class RPSAcceptView(discord.ui.View):
             # Update public message to choice state (primary response)
             embed = discord.Embed(
                 title="✊✌️✋ 선택 페이즈 시작!",
-                description=f"### 두 플레이어는 10초 이내에 자신의 숨겨진 선택지를 클릭해야 합니다옹!\n\n"
+                description=f"### 두 플레이어는 10초 이내에 아래 버튼을 눌러 승부를 내야 합니다옹!\n\n"
                             f"• **신청자**: {self.challenger.mention}\n"
                             f"• **수락자**: {self.opponent.mention}\n"
                             f"• **배팅 판돈**: `{self.bet_amount:,}원`\n\n"
-                            f"⚠️ **주의**: 아래 본인의 이름이 들어간 버튼을 눌러 나오는 나만 보기 화면에서 가위, 바위, 보 중 하나를 10초 이내에 눌러야 합니다!",
+                            f"⚠️ **주의**: 아래 가위, 바위, 보 버튼 중 하나를 클릭하면 나만 보기 메시지로 선택이 확정되며 상대방에게는 노출되지 않습니다옹!",
                 color=0xF39C12
             )
             view = RPSMainChoiceView(self.client, session)
             asyncio.create_task(send_rps_debug_log(self.client, "[RPS-DEBUG] Editing board message to Choice Phase and launching RPSMainChoiceView."))
             await interaction.response.edit_message(embed=embed, view=view)
             
-            # Send ephemeral choice response to opponent B immediately using followup
+            # Send ephemeral receipt confirmation to opponent B immediately using followup
             try:
-                asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-DEBUG] Sending private choice panel to opponent B {self.opponent.display_name} via followup..."))
+                asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-DEBUG] Sending accept confirmation to opponent B {self.opponent.display_name} via followup..."))
                 await interaction.followup.send(
-                    "✅ 대결을 수락하셨습니다옹!\n아래 바위, 가위, 보 중 하나를 **10초 이내**에 선택해 주세요!",
-                    view=RPSIndividualChoiceView(self.opponent.id, session),
+                    "✅ 대결을 수락하셨습니다옹!\n메인 화면에 표시된 ✊ 바위, ✌️ 가위, ✋ 보 버튼 중 원하는 선택지를 **10초 이내**에 선택해 주세요!",
                     ephemeral=True
                 )
-                asyncio.create_task(send_rps_debug_log(self.client, "[RPS-DEBUG] Private choice panel sent successfully to B."))
             except Exception as followup_err:
-                asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-DEBUG] Failed to send opponent B followup choice message: {followup_err}"))
+                asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-DEBUG] Failed to send opponent B followup message: {followup_err}"))
             
             # Start the 10-second game countdown in the background
             asyncio.create_task(send_rps_debug_log(self.client, "[RPS-DEBUG] Starting 10-second background countdown task."))
@@ -879,77 +877,51 @@ class RPSMainChoiceView(discord.ui.View):
         await self.session.process_outcome()
         self.stop()
         
-    @discord.ui.button(label="🅰️ A의 선택지 열기 (A 전용)", style=discord.ButtonStyle.primary)
-    async def choice_a_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.session.challenger.id:
-            await interaction.response.send_message("❌ 이 버튼은 신청자(A) 전용입니다옹!", ephemeral=True)
-            return
-            
-        if self.session.challenger_choice is not None:
-            await interaction.response.send_message("❌ 이미 선택을 완료하셨습니다옹!", ephemeral=True)
-            return
-            
-        await interaction.response.send_message(
-            "🔒 **신청자 A 전용 개인 가위바위보 비밀 선택지**\n아래 가위, 바위, 보 중 하나를 즉시 선택하세요! (10초 제한)",
-            view=RPSIndividualChoiceView(self.session.challenger.id, self.session),
-            ephemeral=True
-        )
-        
-    @discord.ui.button(label="🅱️ B의 선택지 열기 (B 전용)", style=discord.ButtonStyle.success)
-    async def choice_b_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.session.opponent.id:
-            await interaction.response.send_message("❌ 이 버튼은 수락자(B) 전용입니다옹!", ephemeral=True)
-            return
-            
-        if self.session.opponent_choice is not None:
-            await interaction.response.send_message("❌ 이미 선택을 완료하셨습니다옹!", ephemeral=True)
-            return
-            
-        await interaction.response.send_message(
-            "🔒 **수락자 B 전용 개인 가위바위보 비밀 선택지**\n아래 가위, 바위, 보 중 하나를 즉시 선택하세요! (10초 제한)",
-            view=RPSIndividualChoiceView(self.session.opponent.id, self.session),
-            ephemeral=True
-        )
-
-
-class RPSIndividualChoiceView(discord.ui.View):
-    def __init__(self, player_id: int, session: RPSGameSession):
-        super().__init__(timeout=10.0)
-        self.player_id = player_id
-        self.session = session
-        
     async def record_choice(self, interaction: discord.Interaction, choice: str):
+        user_id = interaction.user.id
+        
+        # Check if user is in the session
+        if user_id != self.session.challenger.id and user_id != self.session.opponent.id:
+            await interaction.response.send_message("❌ 이 대결에 관여된 플레이어만 선택할 수 있습니다옹!", ephemeral=True)
+            return
+
         if self.session.finished:
             await interaction.response.send_message("❌ 이미 대결 시간이 지나가버렸습니다옹! (시간초과 실격)", ephemeral=True)
             return
-            
-        if self.player_id == self.session.challenger.id:
+
+        if user_id == self.session.challenger.id:
             if self.session.challenger_choice is not None:
-                await interaction.response.send_message("❌ 이미 선택지를 지정하셨습니다옹!", ephemeral=True)
+                await interaction.response.send_message("❌ 이미 선택을 완료하셨습니다옹!", ephemeral=True)
                 return
             self.session.challenger_choice = choice
         else:
             if self.session.opponent_choice is not None:
-                await interaction.response.send_message("❌ 이미 선택지를 지정하셨습니다옹!", ephemeral=True)
+                await interaction.response.send_message("❌ 이미 선택을 완료하셨습니다옹!", ephemeral=True)
                 return
             self.session.opponent_choice = choice
-            
-        await interaction.response.send_message(f"✅ 숨김 선택으로 **'{choice}'**를 확실하게 지명하셨습니다옹!", ephemeral=True)
-        self.stop()
-        
-        # If both finished picking, immediately trigger result evaluation before 10s expires
+
+        # Inform only the user: "바위를 선택하셨습니냥!"
+        await interaction.response.send_message(f"✅ **{choice}**를 선택하셨습니냥!", ephemeral=True)
+
+        asyncio.create_task(send_rps_debug_log(
+            self.client, 
+            f"[RPS-DEBUG] User {interaction.user.display_name} recorded choice: {choice}"
+        ))
+
+        # If both finished picking, immediately trigger result evaluation
         if self.session.challenger_choice is not None and self.session.opponent_choice is not None:
             await self.session.process_outcome()
-            
-    @discord.ui.button(label="✊ 바위", style=discord.ButtonStyle.secondary)
+            self.stop()
+
+    @discord.ui.button(label="✊ 바위", style=discord.ButtonStyle.primary)
     async def rock_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.record_choice(interaction, "바위")
-        
-    @discord.ui.button(label="✌️ 가위", style=discord.ButtonStyle.secondary)
+
+    @discord.ui.button(label="✌️ 가위", style=discord.ButtonStyle.success)
     async def scissors_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.record_choice(interaction, "가위")
-        
-    @discord.ui.button(label="✋ 보", style=discord.ButtonStyle.secondary)
+
+    @discord.ui.button(label="✋ 보", style=discord.ButtonStyle.danger)
     async def paper_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.record_choice(interaction, "보")
 
