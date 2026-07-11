@@ -194,3 +194,51 @@ class AdminDashboardView(ui.View):
         embed = build_dashboard_embed(self.client, status_msg=f"사용자 구분 {state_str}")
         await interaction.message.edit(embed=embed, view=self)
         await interaction.response.send_message(f"✅ 사용자 구분 기능이 **{state_str}** 되었습니다!", ephemeral=True)
+
+
+class GameAdminDashboardView(ui.View):
+    """
+    Interactive button view attached to the mini-game admin dashboard embed.
+    """
+    def __init__(self, client: discord.Client):
+        super().__init__(timeout=None)  # Persistent across bot reboots
+        self.client = client
+
+    @ui.button(label="🔍 유저 조회", style=discord.ButtonStyle.primary, custom_id="danddobot_game_admin_query", row=0)
+    async def query_user_btn(self, interaction: discord.Interaction, button: ui.Button):
+        logger.info(f"Admin query user modal requested by {interaction.user}")
+        from .modals import GameUserQueryModal
+        modal = GameUserQueryModal(self.client)
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="💵 자산 수정", style=discord.ButtonStyle.success, custom_id="danddobot_game_admin_balance", row=0)
+    async def adjust_balance_btn(self, interaction: discord.Interaction, button: ui.Button):
+        logger.info(f"Admin balance adjust modal requested by {interaction.user}")
+        from .modals import GameBalanceAdjustModal
+        modal = GameBalanceAdjustModal(self.client)
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="📅 출석 수정", style=discord.ButtonStyle.primary, custom_id="danddobot_game_admin_streak", row=0)
+    async def adjust_streak_btn(self, interaction: discord.Interaction, button: ui.Button):
+        logger.info(f"Admin streak adjust modal requested by {interaction.user}")
+        from .modals import GameStreakAdjustModal
+        modal = GameStreakAdjustModal(self.client)
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="🎒 가방 관리", style=discord.ButtonStyle.success, custom_id="danddobot_game_admin_items", row=1)
+    async def manage_items_btn(self, interaction: discord.Interaction, button: ui.Button):
+        logger.info(f"Admin item manage modal requested by {interaction.user}")
+        from .modals import GameItemManageModal
+        modal = GameItemManageModal(self.client)
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="🔄 패널 새로고침", style=discord.ButtonStyle.secondary, custom_id="danddobot_game_admin_refresh", row=1)
+    async def refresh_panel_btn(self, interaction: discord.Interaction, button: ui.Button):
+        logger.info(f"Admin game panel refresh requested by {interaction.user}")
+        await interaction.response.defer(ephemeral=True)
+        
+        from .embeds import build_game_admin_embed
+        embed = await build_game_admin_embed(self.client)
+        await interaction.message.edit(embed=embed, view=self)
+        await interaction.followup.send("✅ 미니게임 데이터베이스 현황 및 리더보드가 실시간으로 새로고침되었습니다옹!", ephemeral=True)
+

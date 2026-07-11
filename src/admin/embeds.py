@@ -77,3 +77,49 @@ def build_dashboard_embed(client: discord.Client, status_msg: str = "정상 작�
     embed.set_footer(text=f"마지막 업데이트: {time.strftime('%Y-%m-%d %H:%M:%S')}")
     
     return embed
+
+
+async def build_game_admin_embed(client: discord.Client) -> discord.Embed:
+    """
+    Builds a beautiful game admin dashboard Embed with database stats and leaderboard.
+    """
+    import time
+    db = getattr(client, "db", None)
+    if not db:
+        embed = discord.Embed(
+            title="🎮 단또봇 미니게임 어드민 패널",
+            description="❌ 데이터베이스 연결 상태가 비활성화되어 있습니다.",
+            color=0xE74C3C
+        )
+        return embed
+        
+    stats = await db.get_db_stats()
+    top_users = await db.get_top_users(5)
+    
+    embed = discord.Embed(
+        title="🎮 단또봇 미니게임 어드민 패널",
+        description="가입된 사용자들의 DB 정보 카드를 들여다보고, 자산 및 출석 정보를 제어할 수 있습니다.",
+        color=0xE67E22  # Orange/Bronze
+    )
+    
+    db_size_kb = round(stats["db_size"] / 1024, 2)
+    stats_info = (
+        f"• 📊 **총 가입 유저 수**: `{stats['total_users']}명`\n"
+        f"• 💰 **유통 재화 총합**: `{stats['total_money']:,}원`\n"
+        f"• 📁 **DB 파일 크기**: `{db_size_kb} KB`"
+    )
+    embed.add_field(name="📊 데이터베이스 상태 요약", value=stats_info, inline=False)
+    
+    # Leaderboard
+    if top_users:
+        leaderboard_lines = []
+        for idx, u in enumerate(top_users, 1):
+            leaderboard_lines.append(f"🥇 **{idx}위**. `{u['username']}` (ID: `{u['user_id']}`) — **{u['money']:,}원** (연속 `{u['streak']}일` 출석)")
+        leaderboard_text = "\n".join(leaderboard_lines)
+    else:
+        leaderboard_text = "가입된 유저가 아직 없습니다옹."
+        
+    embed.add_field(name="🏆 실시간 자산 랭킹 (Top 5)", value=leaderboard_text, inline=False)
+    embed.set_footer(text=f"마지막 새로고침: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    return embed
+
