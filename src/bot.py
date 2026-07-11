@@ -349,6 +349,17 @@ class DanddobotClient(discord.Client):
         except Exception as e:
             logger.error(f"Error in on_interaction debug handler: {e}")
 
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        # Prevent the bot itself from triggering reaction logic
+        if payload.user_id == self.user.id:
+            return
+            
+        try:
+            from src.game_commands import handle_begging_reaction
+            await handle_begging_reaction(self, payload)
+        except Exception as e:
+            logger.error(f"Error handling raw reaction add: {e}")
+
     async def on_message(self, message: discord.Message):
         # 0. Fast instant command synchronizer for testing / guild level
         if message.content == "!sync":

@@ -43,7 +43,7 @@ def setup_game_commands(client: discord.Client):
                 
                 embed = discord.Embed(
                     title="🐱 바보냥?! 이미 가입되어 있다냥!",
-                    description=f"이미 가입셔서 웰컴 지원금을 챙겨갔다냥!\n\n"
+                    description=f"이미 가입해서 웰컴 지원금을 챙겨갔다냥!\n\n"
                                 f"💵 **보유 잔액:** {existing_user['money']:,}원\n"
                                 f"📅 **가입 일시:** {existing_user['created_at']}",
                     color=0xE74C3C  # Red-ish
@@ -485,6 +485,151 @@ def setup_game_commands(client: discord.Client):
             ACTIVE_RPS_PLAYERS.discard(opponent.id)
             await interaction.response.send_message("❌ 가위바위보 신청 진행 중 시스템 에러가 발생했다냥!", ephemeral=True)
 
+    @client.tree.command(name="구걸", description="수중에 돈이 없을 때 비굴하게 손을 벌려 동전을 구걸합니다. (24시간 쿨다운, 10분 모금)")
+    async def beg(interaction: discord.Interaction):
+        # Prevent actions if db is not initialized
+        db = getattr(client, "db", None)
+        if not db:
+            await interaction.response.send_message("❌ 데이터베이스 시스템이 로딩되지 않았다냥!", ephemeral=True)
+            return
+
+        user_id = interaction.user.id
+        username = interaction.user.display_name
+
+        try:
+            # 1. Fetch user from database
+            user = await db.get_user(user_id)
+            if not user:
+                await interaction.response.send_message("❌ 아직 가입하지 않은 단또다냥! `/가입` 명령어부터 먼저 입력하라냥!", ephemeral=True)
+                return
+
+            user_money = user["money"]
+            
+            # 2. Check if user is actually poor/bankrupt (< 5000 won)
+            if user_money >= 5000:
+                await interaction.response.send_message(
+                    f"❌ 아직 지갑에 `{user_money:,}원`이나 들어있으면서 구걸을 하려 드냥! 양심 어디 갔냥? 쫄딱 망해서 5,000원 미만이 되었을 때나 찾아오라냥!",
+                    ephemeral=True
+                )
+                return
+
+            # 3. Check 24-hour cooldown
+            now = datetime.datetime.now()
+            if user.get("last_begging"):
+                try:
+                    last_beg_dt = datetime.datetime.fromisoformat(user["last_begging"])
+                    time_passed = now - last_beg_dt
+                    if time_passed.total_seconds() < 86400:
+                        remaining = int(86400 - time_passed.total_seconds())
+                        hours = remaining // 3600
+                        minutes = (remaining % 3600) // 60
+                        seconds = remaining % 60
+                        await interaction.response.send_message(
+                            f"❌ 구걸은 하루에 딱 한 번만 할 수 있다냥!\n"
+                            f"앞으로 `{hours:02d}시간 {minutes:02d}분 {seconds:02d}초` 뒤에 다시 구질구질하게 찾아와봐라냥!",
+                            ephemeral=True
+                        )
+                        return
+                except Exception as e:
+                    logger.error(f"Error parsing last_begging timestamp: {e}")
+
+            # 4. Defer response for generating LLM reaction public message
+            await interaction.response.defer(ephemeral=False)
+
+            # Generate tragic/mocking AI reaction prompt
+            prompt = (
+                f"사용자 {username}님이 현재 가진 돈이 {user_money:,}원밖에 없는 극심한 빈곤 상태에서 비굴하게 /구걸 명령어를 사용했습니다.\n"
+                f"• 사용자의 현재 잔고: {user_money:,}원\n\n"
+                f"이 유저가 얼마나 비참하고 하찮은 처지인지 엄청나게 비극적이고 과장되고 얄밉게 묘사하고 조롱하면서, "
+                f"서버의 다른 자비로운 유저들에게 🪙(동전) 반응을 달아 기부해달라고 구걸을 대행해주는 단또봇 말투(야옹체, 츤데레, 놀림조)로 아주 짧게(3~4문장) 작성해주세요."
+            )
+            ai_reaction = await client.llm_client.generate_response(prompt, client.persona_prompt)
+
+            # 5. Create Embed
+            embed = discord.Embed(
+                title=f"😭 {username}님의 처절한 구걸 판대기... 😭",
+                description=f"### \"한 푼만 주십쇼냥... 제발 부탁드린다냥...\"\n\n"
+                            f"• **가련한 구걸자**: {interaction.user.mention}\n"
+                            f"• **현재 보유 재잔고**: `{user_money:,}원`\n"
+                            f"• **모금된 금액**: `0원`\n\n"
+                            f"⚠️ **기부 방법**: 아래에 **🪙 (동전) 이모지 반응**을 달면 본인의 자금 중 **500원**이 이 구걸자에게 실시간 기부(이체)됩니다냥!\n"
+                            f"⏰ **모금 시간**: 앞으로 **10분** 동안만 모금이 열려있습니다냥!",
+                color=0xE67E22 # Orange
+            )
+            embed.add_field(name="🐱 단또봇의 비극적 고발과 놀림", value=ai_reaction, inline=False)
+
+            msg = await interaction.followup.send(embed=embed)
+            await msg.add_reaction("🪙")
+
+            # 6. Save begging session
+            expires_at = now + datetime.timedelta(minutes=10)
+            ACTIVE_BEGGING_SESSIONS[msg.id] = {
+                "beggar_id": user_id,
+                "beggar_name": username,
+                "collected": 0,
+                "donors": set(),
+                "expires_at": expires_at,
+                "message": msg,
+                "is_active": True
+            }
+
+            # 7. Update database record for begging cooldown
+            await db.update_begging_time(user_id, now.isoformat())
+
+            # 8. Start background task to end the begging after 10 minutes (600 seconds)
+            async def end_begging_after_delay(message_id: int, delay: float):
+                await asyncio.sleep(delay)
+                session = ACTIVE_BEGGING_SESSIONS.get(message_id)
+                if session and session["is_active"]:
+                    session["is_active"] = False
+                    beg_id = session["beggar_id"]
+                    beg_name = session["beggar_name"]
+                    collected = session["collected"]
+                    m = session["message"]
+
+                    # Fetch final beggar balance
+                    u_beg = await db.get_user(beg_id)
+                    final_money = u_beg["money"] if u_beg else 0
+
+                    prompt_end = (
+                        f"사용자 {beg_name}님의 10분간의 구걸 모금 시간이 완전히 끝났습니다.\n"
+                        f"• 기부받은 총 동전 개수: {collected // 500}개\n"
+                        f"• 모인 총 금액: {collected:,}원\n"
+                        f"• 구걸 후 최종 보유 잔액: {final_money:,}원\n\n"
+                        f"구걸 모금 종료 결과를 전해 듣고, 기부자들의 적선 덕분에 겨우 입에 풀칠이나 하게 된 {beg_name}님을 향해 "
+                        f"거지새끼가 드디어 목숨은 건졌다며 비웃고, 모인 푼돈({collected:,}원)을 보며 평생 구걸이나 하며 살라며 "
+                        f"낄낄대고 격렬히 무시하고 쫓아내는 얄미운 단또봇 말투(야옹체, 츤데레)로 아주 짧게(2~3문장) 작성해주세요."
+                    )
+                    ai_reaction_end = await client.llm_client.generate_response(prompt_end, client.persona_prompt)
+
+                    embed_end = discord.Embed(
+                        title=f"🛑 {beg_name}님의 구걸 모금 종료! 🛑",
+                        description=f"### \"꺼져라냥! 모금 시간 다 끝났다냥!\"\n\n"
+                                    f"• **가련했던 구걸자**: <@{beg_id}>\n"
+                                    f"• **모금 결과**: 총 `{collected:,}원` (+{collected // 500}개 동전 적선받음)\n"
+                                    f"• **최종 보유 재잔고**: `{final_money:,}원`\n\n"
+                                    f"💸 적선해 준 자비로운 집사들 덕분에 한 끼 식사값은 챙겼다냥! 짝짝짝!",
+                        color=0x7F8C8D # Gray
+                    )
+                    embed_end.add_field(name="🐱 단또봇의 냉혹한 총평 한마디", value=ai_reaction_end, inline=False)
+
+                    try:
+                        await m.edit(embed=embed_end)
+                        await m.clear_reactions()
+                    except Exception as e_edit:
+                        logger.error(f"Error finishing begging session message: {e_edit}")
+
+                    ACTIVE_BEGGING_SESSIONS.pop(message_id, None)
+
+            asyncio.create_task(end_begging_after_delay(msg.id, 600.0))
+
+        except Exception as e:
+            logger.error(f"Error executing beg command: {e}")
+            try:
+                await interaction.followup.send(f"❌ 구걸 명령 중 예상치 못한 에러가 발생했다냥! {e}", ephemeral=True)
+            except Exception:
+                pass
+
 
 RPS_LOG_BUFFER = []
 RPS_LOG_FLUSH_TASK = None
@@ -543,6 +688,118 @@ async def send_rps_debug_log(client, text: str):
 # Globals for Rock-Paper-Scissors
 RPS_COOLDOWNS = {}  # user_id -> datetime of last match (start/accept)
 ACTIVE_RPS_PLAYERS = set()  # set of user_ids currently in an active game
+
+# Globals for Begging
+ACTIVE_BEGGING_SESSIONS = {} # message_id -> session dict
+
+async def handle_begging_reaction(client, payload: discord.RawReactionActionEvent):
+    message_id = payload.message_id
+    if message_id not in ACTIVE_BEGGING_SESSIONS:
+        return
+        
+    session = ACTIVE_BEGGING_SESSIONS[message_id]
+    if not session["is_active"]:
+        return
+        
+    beggar_id = session["beggar_id"]
+    donor_id = payload.user_id
+    
+    # 1. Beggars cannot donate to themselves!
+    if donor_id == beggar_id:
+        try:
+            guild = client.get_guild(payload.guild_id) if payload.guild_id else None
+            if guild:
+                channel = guild.get_channel(payload.channel_id)
+                if channel:
+                    msg = await channel.fetch_message(message_id)
+                    member = guild.get_member(donor_id)
+                    if member:
+                        await msg.remove_reaction(payload.emoji, member)
+        except Exception:
+            pass
+        return
+        
+    # Check if the emoji is 🪙
+    if str(payload.emoji) != "🪙":
+        return
+        
+    # Check if this donor has already donated on this message
+    if donor_id in session["donors"]:
+        try:
+            guild = client.get_guild(payload.guild_id) if payload.guild_id else None
+            if guild:
+                channel = guild.get_channel(payload.channel_id)
+                if channel:
+                    msg = await channel.fetch_message(message_id)
+                    member = guild.get_member(donor_id)
+                    if member:
+                        await msg.remove_reaction(payload.emoji, member)
+        except Exception:
+            pass
+        return
+        
+    # Transfer money from donor to beggar in DB
+    db = getattr(client, "db", None)
+    if not db:
+        return
+        
+    u_donor = await db.get_user(donor_id)
+    if not u_donor:
+        # Not registered user
+        try:
+            guild = client.get_guild(payload.guild_id) if payload.guild_id else None
+            if guild:
+                channel = guild.get_channel(payload.channel_id)
+                if channel:
+                    msg = await channel.fetch_message(message_id)
+                    member = guild.get_member(donor_id)
+                    if member:
+                        await msg.remove_reaction(payload.emoji, member)
+        except Exception:
+            pass
+        return
+        
+    if u_donor["money"] < 500:
+        try:
+            guild = client.get_guild(payload.guild_id) if payload.guild_id else None
+            if guild:
+                channel = guild.get_channel(payload.channel_id)
+                if channel:
+                    msg = await channel.fetch_message(message_id)
+                    member = guild.get_member(donor_id)
+                    if member:
+                        await msg.remove_reaction(payload.emoji, member)
+                        await channel.send(f"❌ <@{donor_id}>님은 잔액이 부족하여 기부(500원)를 할 수 없다냥!", delete_after=5.0)
+        except Exception:
+            pass
+        return
+        
+    # Valid donation!
+    p_donor = await db.update_money(donor_id, -500)
+    p_beggar = await db.update_money(beggar_id, 500)
+    
+    if p_donor is not None and p_beggar is not None:
+        session["collected"] += 500
+        session["donors"].add(donor_id)
+        
+        # Real-time update of public message embed
+        try:
+            msg = session["message"]
+            u_beggar_info = await db.get_user(beggar_id)
+            final_money = u_beggar_info["money"] if u_beggar_info else p_beggar
+            
+            embed = msg.embeds[0]
+            embed.description = (
+                f"### \"한 푼만 주십쇼냥... 제발 부탁드린다냥...\"\n\n"
+                f"• **가련한 구걸자**: <@{beggar_id}>\n"
+                f"• **현재 보유 재잔고**: `{final_money:,}원`\n"
+                f"• **모금된 금액**: `{session['collected']:,}원` (+{len(session['donors'])}명 기부)\n\n"
+                f"⚠️ **기부 방법**: 아래에 **🪙 (동전) 이모지 반응**을 달면 본인의 자금 중 **500원**이 이 구걸자에게 실시간 기부(이체)됩니다냥!\n"
+                f"⏰ **모금 시간**: 앞으로 **10분** 동안만 모금이 열려있습니다냥!"
+            )
+            await msg.edit(embed=embed)
+        except Exception as edit_err:
+            logger.error(f"Error updating begging message on reaction: {edit_err}")
 
 class RPSGameSession:
     def __init__(self, client, challenger: discord.Member, opponent: discord.Member, bet_amount: int, parent_msg: discord.Message):

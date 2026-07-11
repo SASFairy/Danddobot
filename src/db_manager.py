@@ -45,6 +45,14 @@ class DatabaseManager:
                 # OperationalError occurs if columns already exist. This is expected on secondary boots.
                 logger.debug("Check-in columns already exist in users table. Skipping migration.")
 
+            # 3. Database Migration: Add columns for begging feature if they are missing
+            try:
+                cursor.execute("ALTER TABLE users ADD COLUMN last_begging TEXT")
+                conn.commit()
+                logger.info("Successfully executed DB migration: added last_begging column to users table.")
+            except sqlite3.OperationalError:
+                logger.debug("last_begging column already exists in users table. Skipping migration.")
+
             conn.close()
             logger.info(f"Database initialized successfully at {self.db_path}.")
         except Exception as e:
@@ -84,7 +92,7 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 cursor.execute("""
                     SELECT user_id, username, money, items, 
-                           datetime(created_at, 'localtime'), last_checkin, checkin_streak 
+                           datetime(created_at, 'localtime'), last_checkin, checkin_streak, last_begging 
                     FROM users WHERE user_id = ?
                 """, (user_id,))
                 row = cursor.fetchone()
@@ -96,7 +104,8 @@ class DatabaseManager:
                         "items": row[3],
                         "created_at": row[4],
                         "last_checkin": row[5],
-                        "checkin_streak": row[6]
+                        "checkin_streak": row[6],
+                        "last_begging": row[7]
                     }
                 return None
             except Exception as e:
@@ -115,7 +124,7 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 cursor.execute("""
                     SELECT user_id, username, money, items, 
-                           datetime(created_at, 'localtime'), last_checkin, checkin_streak 
+                           datetime(created_at, 'localtime'), last_checkin, checkin_streak, last_begging 
                     FROM users WHERE username LIKE ? LIMIT 1
                 """, (f"%{name}%",))
                 row = cursor.fetchone()
@@ -127,7 +136,8 @@ class DatabaseManager:
                         "items": row[3],
                         "created_at": row[4],
                         "last_checkin": row[5],
-                        "checkin_streak": row[6]
+                        "checkin_streak": row[6],
+                        "last_begging": row[7]
                     }
                 return None
             except Exception as e:
@@ -357,6 +367,22 @@ class DatabaseManager:
             except Exception as e:
                 logger.error(f"Error in transfer_rps_money transaction: {e}")
                 conn.rollback()
+                return False
+            finally:
+                conn.close()
+        return await asyncio.to_thread(_query)
+
+    async def update_begging_time(self, user_id: int, timestamp_str: str) -> bool:
+        """Updates last_begging timestamp string for a user."""
+        def _query():
+            conn = sqlite3.connect(self.db_path)
+            try:
+                cursor = conn.cursor()
+                cursor.execute("UPDATE users SET last_begging = ? WHERE user_id = ?", (timestamp_str, user_id))
+                conn.commit()
+                return True
+            except Exception as e:
+                logger.error(f"Error updating begging time for user {user_id}: {e}")
                 return False
             finally:
                 conn.close()
