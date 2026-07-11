@@ -1,0 +1,35 @@
+name: Deploy Danddobot to Server
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Remote Deployment via SSH
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Execute deployment commands on server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            echo "🚀 Starting Deployment of Danddobot..."
+            
+            # Navigate to the configured project path on your server
+            cd "${{ secrets.PROJECT_PATH }}" || { echo "❌ Directory not found!"; exit 1; }
+            
+            # Pull the latest main branch from GitHub
+            echo "📥 Fetching latest code from GitHub..."
+            git pull origin main
+            
+            # Rebuild and start Docker containers in background
+            echo "🐳 Rebuilding and spinning up Docker containers..."
+            docker compose up --build -d
+            
+            echo "✅ Deployment completed successfully!"
