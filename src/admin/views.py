@@ -658,6 +658,94 @@ class GameAdminDashboardView(ui.View):
         modal = GameItemManageModal(self.client)
         await interaction.response.send_modal(modal)
 
+    @ui.button(label="📤 DB 다운로드", style=discord.ButtonStyle.secondary, custom_id="danddobot_game_admin_db_download", row=1)
+    async def download_db_btn(self, interaction: discord.Interaction, button: ui.Button):
+        logger.info(f"Admin JSON database download requested by {interaction.user}")
+        db = getattr(self.client, "db", None)
+        if not db or not os.path.exists(db.db_path):
+            await interaction.response.send_message("❌ 데이터베이스 파일이 존재하지 않는다냥!", ephemeral=True)
+            return
+            
+        await interaction.response.defer(ephemeral=True)
+        file = discord.File(db.db_path, filename="game_database.json")
+        await interaction.followup.send(
+            content="💾 **현재 미니게임 JSON 데이터베이스 파일입니다.**\n"
+                    "다운로드하여 로컬에서 편집 후 '📥 DB 업로드' 버튼으로 덮어쓸 수 있습니다옹!",
+            file=file,
+            ephemeral=True
+        )
+
+    @ui.button(label="📥 DB 업로드", style=discord.ButtonStyle.danger, custom_id="danddobot_game_admin_db_upload", row=1)
+    async def upload_db_btn(self, interaction: discord.Interaction, button: ui.Button):
+        logger.info(f"Admin JSON database upload flow requested by {interaction.user}")
+        await interaction.response.defer(ephemeral=True)
+        
+        prompt_text = (
+            "📥 **미니게임 JSON 데이터베이스 파일 업로드 대기 시작**\n\n"
+            "**60초 이내**에 어드민 채널 채팅바 왼쪽에 있는 **(+) 버튼**을 눌러 편집 완료된 `game_database.json` 파일을 전송해 주시거나, "
+            "이곳 채팅창으로 파일을 직접 끌어다(Drag & Drop) 던져 주세요!\n\n"
+            "⚠️ **주의:** 완료 시 기존의 모든 유저 데이터가 업로드된 새 파일 내용으로 완전히 덮어씌워집니다!"
+        )
+        await interaction.followup.send(content=prompt_text, ephemeral=True)
+        
+        def check(m):
+            return (
+                m.author.id == interaction.user.id and 
+                m.channel.id == interaction.channel.id and 
+                len(m.attachments) > 0
+            )
+            
+        try:
+            message = await self.client.wait_for('message', check=check, timeout=60.0)
+        except asyncio.TimeoutError:
+            await interaction.followup.send("⏱️ **업로드 시간이 초과되었습니다.** 작업을 취소합니다. 다시 시도해 주세요옹.", ephemeral=True)
+            return
+            
+        attachment = message.attachments[0]
+        if not attachment.filename.endswith(".json"):
+            await interaction.followup.send("❌ **.json 형식의 파일만 미니게임 DB로 등록할 수 있다냥!**", ephemeral=True)
+            return
+            
+        try:
+            file_bytes = await attachment.read()
+            content = file_bytes.decode('utf-8')
+            
+            import json
+            new_data = json.loads(content)
+            if not isinstance(new_data, dict) or "users" not in new_data:
+                await interaction.followup.send("❌ **올바른 형식의 미니게임 DB JSON 구조가 아닙니다.** 최상위 레벨에 `\"users\"` 키가 포함되어야 합니다옹!", ephemeral=True)
+                return
+                
+            db = getattr(self.client, "db", None)
+            if db:
+                async with db.get_lock():
+                    db.data = new_data
+                    await db._save_data()
+                    
+                try:
+                    await message.delete()
+                except Exception:
+                    pass
+                    
+                from .embeds import build_game_admin_embed
+                embed = await build_game_admin_embed(self.client)
+                await interaction.message.edit(embed=embed, view=self)
+                
+                await interaction.followup.send(
+                    f"✅ **미니게임 JSON 데이터베이스 덮어쓰기 성공!**\n"
+                    f"• 등록된 총 사용자 수: `{len(new_data['users'])}명`\n"
+                    f"• 변경된 데이터가 실시간으로 어드민 대시보드 및 인메모리 저장소에 정상 반영되었습니다옹!",
+                    ephemeral=True
+                )
+                logger.warning(f"Database fully replaced via admin file upload by {interaction.user}")
+            else:
+                await interaction.followup.send("❌ 데이터베이스 인스턴스가 존재하지 않습니다.", ephemeral=True)
+        except json.JSONDecodeError as je:
+            await interaction.followup.send(f"❌ **JSON 파일 문법 오류:** 업로드하신 파일에 문법적 문제가 있습니다. 문장 부호(쉼표, 중괄호 등)를 다시 확인해 주세요!\n`오류: {je}`", ephemeral=True)
+        except Exception as e:
+            logger.error(f"Failed to process uploaded DB file: {e}")
+            await interaction.followup.send(f"❌ 데이터베이스 복원 중 치명적인 오류가 발생했습니다: `{e}`", ephemeral=True)
+
     @ui.button(label="🔄 패널 새로고침", style=discord.ButtonStyle.secondary, custom_id="danddobot_game_admin_refresh", row=1)
     async def refresh_panel_btn(self, interaction: discord.Interaction, button: ui.Button):
         logger.info(f"Admin game panel refresh requested by {interaction.user}")
