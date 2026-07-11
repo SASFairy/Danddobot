@@ -20,6 +20,19 @@ class SimpleKeywordRetriever(BaseRetriever):
         words = clean_text.lower().split()
         return [w for w in words if w not in self.stopwords and len(w) > 1]
 
+    def _longest_common_substring_len(self, s1: str, s2: str) -> int:
+        """두 문자열 간 가장 긴 공통 연속 부분 문자열(Longest Common Substring)의 길이를 계산합니다."""
+        m = [[0] * (len(s2) + 1) for _ in range(len(s1) + 1)]
+        longest = 0
+        for i in range(1, len(s1) + 1):
+            for j in range(1, len(s2) + 1):
+                if s1[i-1] == s2[j-1]:
+                    m[i][j] = m[i-1][j-1] + 1
+                    longest = max(longest, m[i][j])
+                else:
+                    m[i][j] = 0
+        return longest
+
     def index_documents(self, documents: List[Dict[str, str]]):
         self.documents = documents
 
@@ -40,8 +53,8 @@ class SimpleKeywordRetriever(BaseRetriever):
             score = 0.0
             matched_tokens = set()
             
-            # 1. 한국어 교착어(조사 및 어미 결합)를 고려한 전방 공통 접두사(어근) 일치 분석
-            # (한국어 조사는 항상 단어 뒤(접미사)에 붙으므로 앞부분 2글자 이상이 공통되면 같은 어근으로 판별합니다)
+            # 1. 한국어 교착어 및 성씨 결합(예: 김동규 <-> 동규)을 고려한 최장 공통 부분 문자열(LCS) 어근 분석
+            # (두 단어 간 연속 공통 글자가 2글자 이상이면 어근이 동일한 매칭으로 인정하여 강건성을 확보합니다)
             for q_token in query_tokens:
                 for d_token in doc_tokens:
                     # 완전 일치하는 경우 최고 우선 점수 부여
@@ -49,28 +62,16 @@ class SimpleKeywordRetriever(BaseRetriever):
                         score += 2.0
                         matched_tokens.add(q_token)
                     else:
-                        # 공통 접두사 길이 계산
-                        prefix_len = 0
-                        for i in range(min(len(q_token), len(d_token))):
-                            if q_token[i] == d_token[i]:
-                                prefix_len += 1
-                            else:
-                                break
-                        
-                        if prefix_len >= 2:
+                        lcs_len = self._longest_common_substring_len(q_token, d_token)
+                        if lcs_len >= 2:
                             score += 1.0
                             matched_tokens.add(q_token)
             
             # 2. 매칭된 키워드가 문서 내에 중복해서 등장할 경우 추가 빈도 가중치 부여
             for q_token in matched_tokens:
                 for d_token in doc_tokens:
-                    prefix_len = 0
-                    for i in range(min(len(q_token), len(d_token))):
-                        if q_token[i] == d_token[i]:
-                            prefix_len += 1
-                        else:
-                            break
-                    if q_token == d_token or prefix_len >= 2:
+                    lcs_len = self._longest_common_substring_len(q_token, d_token)
+                    if q_token == d_token or lcs_len >= 2:
                         score += 0.5
                         
             if score > 0:
