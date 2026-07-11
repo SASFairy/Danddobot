@@ -7,6 +7,7 @@ import time
 from typing import Dict, List, Optional
 from src.state_manager import StateManager
 from src.llm_client import BaseLLMClient
+from src.utils.text_helper import split_message
 
 logger = logging.getLogger("danddobot.bot")
 
@@ -282,7 +283,7 @@ class DanddobotClient(discord.Client):
             logger.error(f"Failed to fetch available models on startup: {e}")
         
         # 1. Setup Persistent View and Send/Update Admin Dashboard
-        from src.admin_panel import AdminDashboardView, build_dashboard_embed
+        from src.admin import AdminDashboardView, build_dashboard_embed
         
         # Register persistent view for button interaction handling
         self.add_view(AdminDashboardView(self))
@@ -496,7 +497,7 @@ class DanddobotClient(discord.Client):
                     logger.warning(f"Failed to check newer messages: {history_err}")
 
                 # Send the response (handling Discord's 2000 character limit using Option A)
-                chunks = self.split_message(response)
+                chunks = split_message(response)
                 for idx, chunk in enumerate(chunks):
                     try:
                         if has_newer_messages and idx == 0:
@@ -506,40 +507,6 @@ class DanddobotClient(discord.Client):
                     except Exception as e:
                         logger.error(f"Failed to send message chunk {idx}: {e}")
 
-    @staticmethod
-    def split_message(text: str, limit: int = 2000) -> List[str]:
-        """
-        Splits a text response into chunks of up to 2000 characters to fit Discord's limits.
-        Avoids breaking mid-line if possible.
-        """
-        if len(text) <= limit:
-            return [text]
-
-        chunks = []
-        lines = text.split("\n")
-        current_chunk = ""
-
-        for line in lines:
-            if len(line) > limit:
-                if current_chunk:
-                    chunks.append(current_chunk.strip())
-                    current_chunk = ""
-                
-                temp_line = line
-                while len(temp_line) > limit:
-                    chunks.append(temp_line[:limit])
-                    temp_line = temp_line[limit:]
-                current_chunk = temp_line + "\n"
-            elif len(current_chunk) + len(line) + 1 > limit:
-                chunks.append(current_chunk.strip())
-                current_chunk = line + "\n"
-            else:
-                current_chunk += line + "\n"
-
-        if current_chunk:
-            chunks.append(current_chunk.strip())
-
-        return chunks
 
     async def send_debug_log(self, message: discord.Message, prompt: str, response: Optional[str], latency: float, is_error: bool = False, error_message: Optional[str] = None):
         """
