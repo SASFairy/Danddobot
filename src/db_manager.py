@@ -216,6 +216,51 @@ class DatabaseManager:
             logger.debug(f"User {user_id} money updated: {current_money} -> {new_money} (change: {amount_change})")
             return new_money
 
+    async def buy_item(self, user_id: int, item_name: str, price: int) -> Dict[str, Any]:
+        """
+        Deducts money and adds item to user's inventory in a thread-safe atomic transaction.
+        Returns outcome status dictionary.
+        """
+        async with self.get_lock():
+            uid_str = str(user_id)
+            user_data = self.data["users"].get(uid_str)
+            if not user_data:
+                return {"status": "not_registered"}
+                
+            current_money = user_data.get("money", 50000)
+            if current_money < price:
+                return {"status": "insufficient_funds", "money": current_money}
+                
+            # Deduct funds
+            user_data["money"] = current_money - price
+            
+            # Update inventory list with quantity representation
+            items_list = user_data.get("items", [])
+            import re
+            found = False
+            for idx, item_str in enumerate(items_list):
+                # Match exact name followed optionally by space and quantity
+                if item_str == item_name or item_str.startswith(f"{item_name} "):
+                    match = re.search(r"\((?P<qty>\d+)개\)", item_str)
+                    qty = 1
+                    if match:
+                        qty = int(match.group("qty"))
+                    items_list[idx] = f"{item_name} ({qty + 1}개)"
+                    found = True
+                    break
+                    
+            if not found:
+                items_list.append(f"{item_name} (1개)")
+                
+            user_data["items"] = items_list
+            await self._save_data()
+            
+            return {
+                "status": "success",
+                "money": user_data["money"],
+                "items": items_list
+            }
+
     async def checkin_user(self, user_id: int, today_str: str, yesterday_str: str) -> Dict[str, Any]:
         """
         Executes daily check-in inside a safe transaction.

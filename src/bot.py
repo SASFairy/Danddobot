@@ -121,6 +121,10 @@ class DanddobotClient(discord.Client):
         from src.db_manager import DatabaseManager
         self.db = DatabaseManager()
 
+        # Initialize Item Database Manager
+        from src.item_db_manager import ItemDatabaseManager
+        self.item_db = ItemDatabaseManager()
+
         # Register mini-game slash commands
         from src.game_commands import setup_game_commands
         setup_game_commands(self)

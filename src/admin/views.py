@@ -678,6 +678,58 @@ class GameDbEditModal(ui.Modal, title="✏️ 미니게임 DB JSON 직접 수정
             await interaction.followup.send(f"❌ 데이터베이스 수정 적용 중 오류가 발생했습니다: `{e}`", ephemeral=True)
 
 
+class GameItemDbEditModal(ui.Modal, title="🛍️ 아이템 DB JSON 직접 수정"):
+    def __init__(self, client: discord.Client):
+        super().__init__()
+        self.client = client
+        
+        item_db = getattr(client, "item_db", None)
+        current_json = "{}"
+        if item_db and os.path.exists(item_db.db_path):
+            try:
+                with open(item_db.db_path, "r", encoding="utf-8") as f:
+                    current_json = f.read()
+            except Exception:
+                pass
+                
+        self.json_input = ui.TextInput(
+            label="아이템 DB JSON 수정 (참치 통조림, 츄르 등)",
+            style=discord.TextStyle.paragraph,
+            default=current_json,
+            required=True,
+            max_length=4000
+        )
+        self.add_item(self.json_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            import json
+            new_data = json.loads(self.json_input.value)
+            if not isinstance(new_data, dict) or "items" not in new_data:
+                await interaction.followup.send("❌ **올바른 형식의 아이템 DB JSON 구조가 아닙니다.** 최상위 레벨에 `\"items\"` 키가 포함되어야 합니다옹!", ephemeral=True)
+                return
+                
+            item_db = getattr(self.client, "item_db", None)
+            if item_db:
+                async with item_db.get_lock():
+                    item_db.data = new_data
+                    await item_db._save_data()
+                    
+                await interaction.followup.send(
+                    f"✅ **아이템 DB JSON 직접 수정 성공!**\n"
+                    f"• 등록된 총 아이템 수: `{len(new_data['items'])}개`\n"
+                    f"• 변경된 데이터가 상점 및 데이터베이스 파일에 즉시 적용되었습니다옹!",
+                    ephemeral=True
+                )
+                logger.warning(f"Item Database manually edited via Discord modal by {interaction.user}")
+        except json.JSONDecodeError as je:
+            await interaction.followup.send(f"❌ **JSON 파일 문법 오류:** 입력하신 내용에 문법적 문제가 있습니다. 문장 부호(쉼표, 중괄호 등)를 다시 확인해 주세요!\n`오류: {je}`", ephemeral=True)
+        except Exception as e:
+            logger.error(f"Failed to process direct item modal edit: {e}")
+            await interaction.followup.send(f"❌ 아이템 DB 수정 적용 중 오류가 발생했습니다: `{e}`", ephemeral=True)
+
+
 class GameAdminDashboardView(ui.View):
     """
     Interactive button view attached to the mini-game admin dashboard embed.
@@ -701,6 +753,23 @@ class GameAdminDashboardView(ui.View):
                 return
         
         modal = GameDbEditModal(self.client)
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="🛍️ 아이템 DB 수정", style=discord.ButtonStyle.success, custom_id="danddobot_game_admin_item_db_edit", row=0)
+    async def edit_item_db_btn(self, interaction: discord.Interaction, button: ui.Button):
+        logger.info(f"Admin Item database direct edit requested by {interaction.user}")
+        item_db = getattr(self.client, "item_db", None)
+        if item_db and os.path.exists(item_db.db_path):
+            file_len = os.path.getsize(item_db.db_path)
+            if file_len > 3800:
+                await interaction.response.send_message(
+                    "⚠️ **아이템 DB 파일 용량이 너무 커서(4000자 초과) 모달에서 직접 수정할 수 없다냥!**\n"
+                    "직접 서버 파일 호스트에서 편집해 주세요옹!",
+                    ephemeral=True
+                )
+                return
+                
+        modal = GameItemDbEditModal(self.client)
         await interaction.response.send_modal(modal)
 
     @ui.button(label="📤 DB 다운로드", style=discord.ButtonStyle.secondary, custom_id="danddobot_game_admin_db_download", row=0)
