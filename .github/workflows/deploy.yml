@@ -28,9 +28,9 @@ jobs:
             
             # Fetch and dynamically checkout the branch that triggered this deployment
             echo "📥 Fetching latest code for branch: ${{ github.ref_name }}..."
-            sudo git fetch origin
-            sudo git checkout ${{ github.ref_name }}
-            sudo git pull origin ${{ github.ref_name }}
+            git fetch origin
+            git checkout ${{ github.ref_name }}
+            git pull origin ${{ github.ref_name }}
             
             # Rebuild and start Docker containers in background
             echo "🐳 Rebuilding and spinning up Docker containers..."
