@@ -107,9 +107,8 @@ class DanddobotClient(discord.Client):
         current_model = getattr(self.llm_client, "model", "unknown")
         self.available_models: List[str] = [current_model] if current_model != "unknown" else []
 
-        # Initialize AI and spam auto-timeout systems
+        # Initialize AI autonomic user-blocking system
         self.user_blocks: Dict[int, dict] = {}
-        self.message_timestamps: Dict[int, List[float]] = {}
 
         # Initialize cached persona prompt
         self.persona_prompt: str = self.load_persona()
@@ -413,7 +412,7 @@ class DanddobotClient(discord.Client):
         if not self.should_respond(message):
             return
 
-        # 0.75 Check if user is blocked (AI-initiated timeout or spam block)
+        # 0.75 Check if user is blocked (AI-initiated timeout)
         import datetime
         now = datetime.datetime.now()
         user_id = message.author.id
@@ -425,7 +424,7 @@ class DanddobotClient(discord.Client):
                 del self.user_blocks[user_id]
                 logger.info(f"Block expired for user {message.author} ({user_id})")
                 
-        # If user is currently blocked, notify them with a rate-limit
+        # If user is currently blocked, notify them with a rate-limit in a natural sassy tone
         if user_id in self.user_blocks:
             block_info = self.user_blocks[user_id]
             remaining = int((block_info["until"] - now).total_seconds())
@@ -436,39 +435,12 @@ class DanddobotClient(discord.Client):
                 if current_time - last_notify >= 5:
                     block_info["last_notified"] = current_time
                     await message.reply(
-                        f"🚨 **대화 거부 상태다냥!** 🚨\n\n"
-                        f"• **남은 차단 시간:** `{remaining}초`\n"
-                        f"• **차단 사유:** {block_info['reason']}\n\n"
-                        f"🤫 반성하고 조용히 기다리라냥! 입 열지 마라냥!"
+                        f"🤫 **쉿! 차단당한 상태다냥!** ({remaining}초 남음)\n"
+                        f"넌 내가 저번에 한 말 벌써 잊어버렸냐냥?\n"
+                        f"> \"{block_info['reason']}\"\n"
+                        f"반성 시간 끝날 때까지 입 꾹 다물고 찌그러져 있으라냥! 🤐"
                     )
                 return
-
-        # 0.8 Spam/Flood detection (Auto-Block)
-        current_time = time.time()
-        if user_id not in self.message_timestamps:
-            self.message_timestamps[user_id] = []
-            
-        # Keep only timestamps from the last 10 seconds
-        self.message_timestamps[user_id] = [t for t in self.message_timestamps[user_id] if current_time - t <= 10]
-        self.message_timestamps[user_id].append(current_time)
-        
-        # If user sent more than 5 messages in 10 seconds, block them for 5 minutes!
-        if len(self.message_timestamps[user_id]) > 5:
-            ban_until = now + datetime.timedelta(minutes=5)
-            self.user_blocks[user_id] = {
-                "until": ban_until,
-                "reason": "과도한 메시지 연타 및 도배 행위 (도배 방지 시스템 자동 제동)",
-                "last_notified": current_time
-            }
-            # Clear timestamps to reset counter
-            self.message_timestamps[user_id] = []
-            
-            await message.reply(
-                f"🚨 **도배 죄 차단 처분!** 🚨\n\n"
-                f"어디서 감히 단또한테 연타를 날려 정신없게 만드냐냥! 💢\n"
-                f"{message.author.mention}님은 도배 방지법에 의해 **5분간** 대화가 일절 금지된다냥! 🤫"
-            )
-            return
 
         # Acquire sequential processing lock (Option A)
         async with self.lock:
@@ -496,16 +468,17 @@ class DanddobotClient(discord.Client):
                         f"{rag_context}"
                     )
 
-            # Append AI block system instructions dynamically
+            # Append AI block system instructions dynamically with milder criteria
             block_instructions = (
-                "\n\n[🚨 대화 거부 / 타임아웃 권한 시스템]\n"
-                "당신(단또봇)은 자신을 학대하거나, 과도한 시비/욕설을 퍼붓거나, 말을 아주 좆같이 예의없게 하거나, 상식 이하로 무례하게 굴며 도발하는 이용자에게 스스로 대화를 거부할 권리가 있습니다.\n"
-                "만약 상대방(현재 사용자)의 대화 태도가 선을 넘었다고 판단되면, 답변 글의 맨 첫 줄에 반드시 다음 형식의 태그를 삽입하고 즉시 대화를 중단하십시오.\n"
-                "• 형식: `[BLOCK_USER_10M] <차단 사유 및 비꼬는 한마디>` (10분 차단)\n"
-                "• 형식: `[BLOCK_USER_30M] <차단 사유 및 비꼬는 한마디>` (30분 차단)\n"
-                "• 형식: `[BLOCK_USER_1H] <차단 사유 및 비꼬는 한마디>` (1시간 차단)\n"
-                "예시: `[BLOCK_USER_10M] 말을 너무 좆같이 하네냥! 더는 상대 안 해줄 거다냥. 10분 동안 벽 보고 반성해라냥!`\n"
-                "반드시 상황에 맞게 10분, 30분, 1시간 차단 태그 중 하나를 골라 맨 첫 줄에 입력하십시오. 차단 태그 뒤에는 차단 사유 외에 다른 일반 답변 내용을 적지 마십시오."
+                "\n\n[🚨 대화 거부 / 차단 권한 시스템]\n"
+                "당신(단또봇)은 상대방의 말이나 태도가 너무 저급하거나 비하 및 저질 욕설을 남발할 때, 혹은 의미 없는 이모티콘 도배나 무의미한 헛소리 및 앵무새 같은 반복적인 내용을 계속 무의미하게 연타해 입력할 때 스스로 대화를 일정 시간 거부(차단)할 권리가 있습니다.\n"
+                "다만, 너무 사소한 장난이나 조그만 시비에는 차단하지 말고 최대한 유연하고 유하게 대처하십시오. 칼차단은 지양해야 합니다. 정말 수준 이하의 무의미한 도배나 저급한 내용으로 더는 대화를 이어가기 불가능할 때만 진짜 차단하십시오.\n"
+                "차단을 내리기로 결정했다면, 답변 글의 맨 첫 줄에 반드시 다음 중 하나의 차단 태그를 삽입하고, 그 뒤에 '진짜 개인 SNS에서 비매너 유저를 즉각 차단해 버리는 듯한 츤데레 고양이 말투'로 직접 한마디 쏘아붙이는 차단 통보 답변을 작성하십시오.\n"
+                "• 형식: `[BLOCK_USER_1M]` (1분 차단)\n"
+                "• 형식: `[BLOCK_USER_5M]` (5분 차단)\n"
+                "• 형식: `[BLOCK_USER_10M]` (10분 차단)\n"
+                "예시: `[BLOCK_USER_5M] 아 진짜 뜻도 없는 이모티콘만 연타하면서 앵무새처럼 반복하는 거 존나 한심하다냥! 지겨우니까 5분 동안 나한테 아는 척도 하지 말아라냥! 흥!`\n"
+                "반드시 상황에 맞게 1M, 5M, 10M 중 하나를 골라 맨 첫 줄에 삽입하고, 뒷부분에는 자연스러운 반말/츤데레 대화 톤으로 상황에 맞춘 단냥이 코멘트를 적으십시오. 시스템적인 카드나 안내 형태는 일절 적지 마십시오."
             )
             system_prompt = f"{system_prompt}{block_instructions}"
 
@@ -557,17 +530,17 @@ class DanddobotClient(discord.Client):
             else:
                 # Parse AI-initiated blocks
                 import re
-                block_match = re.match(r"^\[BLOCK_USER_(?P<dur>10M|30M|1H)\]\s*(?P<reason>.+)", response, re.DOTALL)
+                block_match = re.match(r"^\[BLOCK_USER_(?P<dur>1M|5M|10M)\]\s*(?P<reason>.+)", response, re.DOTALL)
                 if block_match:
                     duration_str = block_match.group("dur")
                     reason = block_match.group("reason").strip()
                     
                     # Calculate duration in seconds
-                    duration_secs = 600
-                    if duration_str == "30M":
-                        duration_secs = 1800
-                    elif duration_str == "1H":
-                        duration_secs = 3600
+                    duration_secs = 60
+                    if duration_str == "5M":
+                        duration_secs = 300
+                    elif duration_str == "10M":
+                        duration_secs = 600
                         
                     ban_until = datetime.datetime.now() + datetime.timedelta(seconds=duration_secs)
                     self.user_blocks[message.author.id] = {
@@ -576,14 +549,8 @@ class DanddobotClient(discord.Client):
                         "last_notified": time.time()
                     }
                     
-                    # Format final notification response
-                    response = (
-                        f"🚨 **단또봇 대화 거부 (AI 판단 타임아웃)** 🚨\n\n"
-                        f"• **차단 대상:** {message.author.mention}\n"
-                        f"• **차단 기간:** `{duration_str}` ({duration_secs // 60}분간 말 걸기 금지)\n"
-                        f"• **단또의 분노 사유:** {reason}\n\n"
-                        f"🤫 넌 이제 당분간 나한테 아는 척도 하지 마라냥! 흥!"
-                    )
+                    # Directly output the AI's natural, sassy comment as the response (no admin card)
+                    response = reason
 
                 # Save dialog to conversational history if memory is enabled
                 if self.use_memory:
