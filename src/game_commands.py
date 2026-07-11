@@ -1,6 +1,7 @@
 import random
 import logging
 import datetime
+import asyncio
 import discord
 from discord import app_commands
 
@@ -480,6 +481,26 @@ def setup_game_commands(client: discord.Client):
             await interaction.response.send_message("❌ 가위바위보 신청 진행 중 시스템 에러가 발생했다옹!", ephemeral=True)
 
 
+async def send_rps_debug_log(client, text: str):
+    logger.info(text)
+    # Also send to Discord log channel if configured
+    if getattr(client, "log_channel_id", None):
+        try:
+            log_channel = client.get_channel(client.log_channel_id)
+            if not log_channel:
+                log_channel = await client.fetch_channel(client.log_channel_id)
+            if log_channel:
+                embed = discord.Embed(
+                    title="✊✌️✋ 가위바위보 디버그 로그",
+                    description=f"```\n{text}\n```",
+                    color=0xE67E22,
+                    timestamp=discord.utils.utcnow()
+                )
+                await log_channel.send(embed=embed)
+        except Exception as e:
+            logger.error(f"Failed to send RPS debug log to log channel: {e}")
+
+
 # Globals for Rock-Paper-Scissors
 RPS_COOLDOWNS = {}  # user_id -> datetime of last match (start/accept)
 ACTIVE_RPS_PLAYERS = set()  # set of user_ids currently in an active game
@@ -499,23 +520,24 @@ class RPSGameSession:
     async def process_outcome(self):
         async with self.lock:
             if self.finished:
-                logger.info(f"[RPS-DEBUG] RPSGameSession already finalized. Skipping duplicate execution.")
+                await send_rps_debug_log(self.client, "[RPS-DEBUG] RPSGameSession already finalized. Skipping duplicate execution.")
                 return
             self.finished = True
             
-            logger.info(
-                f"\n📊 [RPS-DEBUG] 세기의 가위바위보 대결 결과 집계 시작!\n"
+            await send_rps_debug_log(
+                self.client,
+                f"📊 [RPS-DEBUG] 세기의 가위바위보 대결 결과 집계 시작!\n"
                 f"• 대전 판돈: {self.bet_amount:,}원\n"
                 f"• 신청자 (Challenger): {self.challenger.display_name} (ID: {self.challenger.id})\n"
                 f"• 수락자 (Opponent): {self.opponent.display_name} (ID: {self.opponent.id})\n"
                 f"• 신청자 선택 (A Choice): {self.challenger_choice}\n"
-                f"• 수락자 선택 (B Choice): {self.opponent_choice}\n"
+                f"• 수락자 선택 (B Choice): {self.opponent_choice}"
             )
             
             # Remove from active players
             ACTIVE_RPS_PLAYERS.discard(self.challenger.id)
             ACTIVE_RPS_PLAYERS.discard(self.opponent.id)
-            logger.info(f"[RPS-DEBUG] Players unlocked from ACTIVE_RPS_PLAYERS list.")
+            await send_rps_debug_log(self.client, "[RPS-DEBUG] Players unlocked from ACTIVE_RPS_PLAYERS list.")
             
             choice_emojis = {"바위": "✊ 바위", "가위": "✌️ 가위", "보": "✋ 보", None: "🛑 기권 (시간 초과)"}
             
@@ -533,7 +555,7 @@ class RPSGameSession:
                 color = 0x95A5A6 # Grey
                 winner_id, loser_id = None, None
                 reason_msg = "두 분 모두 10초 이내에 선택하지 않아 쌍방 실격(무승부) 처리되었습니다옹!"
-                logger.info("[RPS-DEBUG] Result determined: Double Timeout (Tie/No action)")
+                await send_rps_debug_log(self.client, "[RPS-DEBUG] Result determined: Double Timeout (Tie/No action)")
             elif c_choice is None:
                 # Challenger A timed out
                 winner = self.opponent
@@ -541,7 +563,7 @@ class RPSGameSession:
                 result_title = f"🏆 {winner.display_name}님 기권승! 🏆"
                 color = 0x2ECC71
                 reason_msg = f"{self.challenger.display_name}님이 10초 내 선택에 실패하여 {self.opponent.display_name}님이 기권승하셨습니다옹!"
-                logger.info(f"[RPS-DEBUG] Result determined: Opponent {winner.display_name} wins by Challenger timeout")
+                await send_rps_debug_log(self.client, f"[RPS-DEBUG] Result determined: Opponent {winner.display_name} wins by Challenger timeout")
             elif o_choice is None:
                 # Opponent B timed out
                 winner = self.challenger
@@ -549,13 +571,13 @@ class RPSGameSession:
                 result_title = f"🏆 {winner.display_name}님 기권승! 🏆"
                 color = 0x2ECC71
                 reason_msg = f"{self.opponent.display_name}님이 10초 내 선택에 실패하여 {self.challenger.display_name}님이 기권승하셨습니다옹!"
-                logger.info(f"[RPS-DEBUG] Result determined: Challenger {winner.display_name} wins by Opponent timeout")
+                await send_rps_debug_log(self.client, f"[RPS-DEBUG] Result determined: Challenger {winner.display_name} wins by Opponent timeout")
             elif c_choice == o_choice:
                 # Tie
                 result_title = "🤝 가위바위보 비겼습니다옹! 🤝"
                 color = 0x3498DB # Blue
                 reason_msg = f"두 분 모두 **{choice_emojis[c_choice]}**를 내어 승부가 나지 않았습니다옹. 판돈은 그대로 보존됩니다."
-                logger.info(f"[RPS-DEBUG] Result determined: Tie on {c_choice}")
+                await send_rps_debug_log(self.client, f"[RPS-DEBUG] Result determined: Tie on {c_choice}")
             else:
                 # Standard win/lose check
                 # Rock beats Scissors, Scissors beats Paper, Paper beats Rock
@@ -573,7 +595,7 @@ class RPSGameSession:
                     f"• {self.challenger.display_name}: **{choice_emojis[c_choice]}**\n"
                     f"• {self.opponent.display_name}: **{choice_emojis[o_choice]}**"
                 )
-                logger.info(f"[RPS-DEBUG] Result determined: Winner {winner.display_name} ({c_choice if winner == self.challenger else o_choice}) vs Loser {loser.display_name} ({o_choice if winner == self.challenger else c_choice})")
+                await send_rps_debug_log(self.client, f"[RPS-DEBUG] Result determined: Winner {winner.display_name} ({c_choice if winner == self.challenger else o_choice}) vs Loser {loser.display_name} ({o_choice if winner == self.challenger else c_choice})")
                 
             # DB processing
             payout_msg = ""
@@ -582,7 +604,7 @@ class RPSGameSession:
             if winner and loser:
                 # 20% commission on the winnings (net profit)
                 profit = int(self.bet_amount * 0.8)
-                logger.info(f"[RPS-DEBUG] Transferring funds: {self.bet_amount:,} won from {loser.display_name} to {winner.display_name} (payout profit: {profit:,} after 20% fee)")
+                await send_rps_debug_log(self.client, f"[RPS-DEBUG] Transferring funds: {self.bet_amount:,} won from {loser.display_name} to {winner.display_name} (payout profit: {profit:,} after 20% fee)")
                 success = await db.transfer_rps_money(winner.id, loser.id, self.bet_amount, profit)
                 if success:
                     payout_msg = (
@@ -590,13 +612,13 @@ class RPSGameSession:
                         f"• {winner.mention} 당첨금 지급: `+{profit:,}원` (20% 수수료 공제 완료)\n"
                         f"• {loser.mention} 자산 손실: `-{self.bet_amount:,}원`"
                     )
-                    logger.info(f"[RPS-DEBUG] Database ledger update succeeded.")
+                    await send_rps_debug_log(self.client, "[RPS-DEBUG] Database ledger update succeeded.")
                 else:
                     payout_msg = "⚠️ [오류] 판돈 이체 정산 중 예상치 못한 DB 오류가 발생했습니다. 수동 정산이 필요합니다옹!"
-                    logger.error(f"[RPS-DEBUG] Database ledger update failed! Potential database lock or connection error.")
+                    await send_rps_debug_log(self.client, "[RPS-DEBUG] Database ledger update failed! Potential database lock or connection error.")
             else:
                 payout_msg = "💵 **베팅 판돈 정산 결과**\n• 무승부 또는 쌍방 기권으로 자산 변동이 없습니다옹!"
-                logger.info(f"[RPS-DEBUG] No database balance change needed.")
+                await send_rps_debug_log(self.client, "[RPS-DEBUG] No database balance change needed.")
                 
             # Request LLM reaction
             if winner and loser:
@@ -620,11 +642,11 @@ class RPSGameSession:
                 )
             
             try:
-                logger.info(f"[RPS-DEBUG] Fetching real-time AI reaction response...")
+                await send_rps_debug_log(self.client, "[RPS-DEBUG] Fetching real-time AI reaction response...")
                 ai_reaction = await self.client.llm_client.generate_response(prompt, self.client.persona_prompt)
-                logger.info(f"[RPS-DEBUG] AI response fetched: {ai_reaction}")
+                await send_rps_debug_log(self.client, f"[RPS-DEBUG] AI response fetched: {ai_reaction}")
             except Exception as e:
-                logger.warning(f"[RPS-DEBUG] Failed to fetch AI reaction: {e}")
+                await send_rps_debug_log(self.client, f"[RPS-DEBUG] Failed to fetch AI reaction: {e}")
                 ai_reaction = "야옹... 너무 시시한 승부라 말문이 턱 막힌다옹!"
                 
             # Build outcome embed
@@ -640,9 +662,9 @@ class RPSGameSession:
             # Edit parent message to display the final result (without any buttons)
             try:
                 await self.parent_msg.edit(embed=embed, view=None)
-                logger.info(f"[RPS-DEBUG] Main game board message edited to final result. Game completed successfully!\n")
+                await send_rps_debug_log(self.client, "[RPS-DEBUG] Main game board message edited to final result. Game completed successfully!\n")
             except Exception as e:
-                logger.error(f"[RPS-DEBUG] Failed to edit parent game board message to final result: {e}")
+                await send_rps_debug_log(self.client, f"[RPS-DEBUG] Failed to edit parent game board message to final result: {e}")
 
 
 class RPSAcceptView(discord.ui.View):
@@ -655,40 +677,40 @@ class RPSAcceptView(discord.ui.View):
         self.message = None
         
     async def on_timeout(self):
-        logger.info(f"[RPS-DEBUG] RPSAcceptView timed out (30 seconds expired). Preparing message cleanup...")
+        await send_rps_debug_log(self.client, f"[RPS-DEBUG] RPSAcceptView timed out (30 seconds expired). Preparing message cleanup...")
         # Clean up global state
         ACTIVE_RPS_PLAYERS.discard(self.challenger.id)
         ACTIVE_RPS_PLAYERS.discard(self.opponent.id)
-        logger.info(f"[RPS-DEBUG] Discarded player active locks due to timeout. Challenger: {self.challenger.id}, Opponent: {self.opponent.id}")
+        await send_rps_debug_log(self.client, f"[RPS-DEBUG] Discarded player active locks due to timeout. Challenger: {self.challenger.id}, Opponent: {self.opponent.id}")
         
         if self.message:
             try:
                 # Completely delete the challenge message on 30-second timeout
                 await self.message.delete()
-                logger.info("[RPS-DEBUG] Timeout SUCCESS: Challenge board message deleted successfully from channel.")
+                await send_rps_debug_log(self.client, "[RPS-DEBUG] Timeout SUCCESS: Challenge board message deleted successfully from channel.")
             except Exception as e:
-                logger.warning(f"[RPS-DEBUG] Timeout WARNING: Failed to delete timed out RPS challenge message: {e}")
+                await send_rps_debug_log(self.client, f"[RPS-DEBUG] Timeout WARNING: Failed to delete timed out RPS challenge message: {e}")
             
     @discord.ui.button(label="🟢 대결 수락", style=discord.ButtonStyle.success)
     async def accept_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        logger.info(f"[RPS-DEBUG] Accept button clicked by: {interaction.user.display_name} ({interaction.user.id})")
+        await send_rps_debug_log(self.client, f"[RPS-DEBUG] Accept button clicked by: {interaction.user.display_name} ({interaction.user.id})")
         if interaction.user.id != self.opponent.id:
-            logger.info(f"[RPS-DEBUG] Rejecting accept click: User {interaction.user.display_name} is not the designated opponent {self.opponent.display_name}")
+            await send_rps_debug_log(self.client, f"[RPS-DEBUG] Rejecting accept click: User {interaction.user.display_name} is not the designated opponent {self.opponent.display_name}")
             await interaction.response.send_message(f"❌ 도전 대상자 파트너인 {self.opponent.display_name}님만 수락할 수 있습니다옹!", ephemeral=True)
             return
             
         # Cancel the accept view timeout
-        logger.info("[RPS-DEBUG] Correct opponent clicked Accept. Stopping view timeout timer.")
+        await send_rps_debug_log(self.client, "[RPS-DEBUG] Correct opponent clicked Accept. Stopping view timeout timer.")
         self.stop()
         
         # Double check money and registration on acceptance
         db = self.client.db
-        logger.info("[RPS-DEBUG] Verifying balances in database before starting match...")
+        await send_rps_debug_log(self.client, "[RPS-DEBUG] Verifying balances in database before starting match...")
         u_challenger = await db.get_user(self.challenger.id)
         u_opponent = await db.get_user(self.opponent.id)
         
         if not u_challenger or u_challenger["money"] < self.bet_amount:
-            logger.warning(f"[RPS-DEBUG] Match Aborted: Challenger {self.challenger.display_name} balance too low or not registered.")
+            await send_rps_debug_log(self.client, f"[RPS-DEBUG] Match Aborted: Challenger {self.challenger.display_name} balance too low or not registered.")
             ACTIVE_RPS_PLAYERS.discard(self.challenger.id)
             ACTIVE_RPS_PLAYERS.discard(self.opponent.id)
             
@@ -704,7 +726,7 @@ class RPSAcceptView(discord.ui.View):
             return
             
         if not u_opponent or u_opponent["money"] < self.bet_amount:
-            logger.warning(f"[RPS-DEBUG] Match Aborted: Opponent {self.opponent.display_name} balance too low or not registered.")
+            await send_rps_debug_log(self.client, f"[RPS-DEBUG] Match Aborted: Opponent {self.opponent.display_name} balance too low or not registered.")
             ACTIVE_RPS_PLAYERS.discard(self.challenger.id)
             ACTIVE_RPS_PLAYERS.discard(self.opponent.id)
             
@@ -723,10 +745,10 @@ class RPSAcceptView(discord.ui.View):
         now = datetime.datetime.now()
         RPS_COOLDOWNS[self.challenger.id] = now
         RPS_COOLDOWNS[self.opponent.id] = now
-        logger.info(f"[RPS-DEBUG] Cooldown timestamp locked for players.")
+        await send_rps_debug_log(self.client, f"[RPS-DEBUG] Cooldown timestamp locked for players.")
         
         # We start the game session
-        logger.info(f"[RPS-DEBUG] Creating RPSGameSession object...")
+        await send_rps_debug_log(self.client, f"[RPS-DEBUG] Creating RPSGameSession object...")
         session = RPSGameSession(self.client, self.challenger, self.opponent, self.bet_amount, interaction.message)
         
         # Update public message to choice state (primary response)
@@ -740,35 +762,35 @@ class RPSAcceptView(discord.ui.View):
             color=0xF39C12
         )
         view = RPSMainChoiceView(self.client, session)
-        logger.info("[RPS-DEBUG] Editing board message to Choice Phase and launching RPSMainChoiceView.")
+        await send_rps_debug_log(self.client, "[RPS-DEBUG] Editing board message to Choice Phase and launching RPSMainChoiceView.")
         await interaction.response.edit_message(embed=embed, view=view)
         
         # Send ephemeral choice response to opponent B immediately using followup
         try:
-            logger.info(f"[RPS-DEBUG] Sending private choice panel to opponent B {self.opponent.display_name} via followup...")
+            await send_rps_debug_log(self.client, f"[RPS-DEBUG] Sending private choice panel to opponent B {self.opponent.display_name} via followup...")
             await interaction.followup.send(
                 "✅ 대결을 수락하셨습니다옹!\n아래 바위, 가위, 보 중 하나를 **10초 이내**에 선택해 주세요!",
                 view=RPSIndividualChoiceView(self.opponent.id, session),
                 ephemeral=True
             )
-            logger.info("[RPS-DEBUG] Private choice panel sent successfully to B.")
+            await send_rps_debug_log(self.client, "[RPS-DEBUG] Private choice panel sent successfully to B.")
         except Exception as followup_err:
-            logger.error(f"[RPS-DEBUG] Failed to send opponent B followup choice message: {followup_err}")
+            await send_rps_debug_log(self.client, f"[RPS-DEBUG] Failed to send opponent B followup choice message: {followup_err}")
         
         # Start the 10-second game countdown in the background
-        logger.info("[RPS-DEBUG] Starting 10-second background countdown task.")
+        await send_rps_debug_log(self.client, "[RPS-DEBUG] Starting 10-second background countdown task.")
         asyncio.create_task(view.start_countdown())
         
     @discord.ui.button(label="🔴 대결 거절", style=discord.ButtonStyle.secondary)
     async def decline_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        logger.info(f"[RPS-DEBUG] Decline button clicked by: {interaction.user.display_name} ({interaction.user.id})")
+        await send_rps_debug_log(self.client, f"[RPS-DEBUG] Decline button clicked by: {interaction.user.display_name} ({interaction.user.id})")
         if interaction.user.id != self.opponent.id and interaction.user.id != self.challenger.id:
-            logger.info(f"[RPS-DEBUG] Rejecting decline click: User {interaction.user.display_name} is not challenger or opponent.")
+            await send_rps_debug_log(self.client, f"[RPS-DEBUG] Rejecting decline click: User {interaction.user.display_name} is not challenger or opponent.")
             await interaction.response.send_message("❌ 이 매치에 관여된 플레이어만 판돈 거절을 누를 수 있습니다옹!", ephemeral=True)
             return
             
         self.stop()
-        logger.info("[RPS-DEBUG] Declining match. Unlocking players and updating board message.")
+        await send_rps_debug_log(self.client, "[RPS-DEBUG] Declining match. Unlocking players and updating board message.")
         
         ACTIVE_RPS_PLAYERS.discard(self.challenger.id)
         ACTIVE_RPS_PLAYERS.discard(self.opponent.id)
@@ -782,12 +804,12 @@ class RPSAcceptView(discord.ui.View):
         
         # Primary response: edit message to show declined status and remove buttons
         await interaction.response.edit_message(embed=embed, view=None)
-        logger.info("[RPS-DEBUG] Decline board message updated.")
+        await send_rps_debug_log(self.client, "[RPS-DEBUG] Decline board message updated.")
         
         # Secondary response: send ephemeral confirmation
         try:
             await interaction.followup.send("✅ 대결 거절/취소 처리가 완료되었습니다.", ephemeral=True)
-            logger.info("[RPS-DEBUG] Private decline confirmation sent.")
+            await send_rps_debug_log(self.client, "[RPS-DEBUG] Private decline confirmation sent.")
         except Exception:
             pass
 
