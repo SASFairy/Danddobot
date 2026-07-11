@@ -429,7 +429,8 @@ class DanddobotClient(discord.Client):
             block_info = self.user_blocks[user_id]
             remaining = int((block_info["until"] - now).total_seconds())
             if remaining > 0:
-                logger.info(f"[BLOCKED USER MESSAGE IGNORED] User: {message.author} ({user_id}) tried to chat but is currently blocked for another {remaining}s. Reason: {block_info['reason']}")
+                duration_mins = block_info.get("duration_mins", "알 수 없음")
+                logger.info(f"[BLOCKED USER MESSAGE IGNORED] User: {message.author} ({user_id}) tried to chat but is currently blocked for another {remaining}s. Max duration: {duration_mins}m. Reason: {block_info['reason']}")
                 
                 # Also log to debug log channel in the background
                 if self.log_channel_id:
@@ -446,7 +447,7 @@ class DanddobotClient(discord.Client):
                                 )
                                 embed.add_field(name="👤 사용자", value=f"{message.author.mention} ({user_id})", inline=True)
                                 embed.add_field(name="💬 채널", value=message.channel.mention if message.channel else "알 수 없음", inline=True)
-                                embed.add_field(name="⏳ 남은 기간", value=f"`{remaining}초`", inline=True)
+                                embed.add_field(name="⏳ 남은 기간 / 총 차단", value=f"`{remaining}초` / `{duration_mins}분`", inline=True)
                                 embed.add_field(name="🤬 차단 사유 (쌍욕)", value=f"```\n{block_info['reason']}\n```", inline=False)
                                 embed.add_field(name="📝 수신 메시지", value=f"```\n{message.content[:500]}\n```", inline=False)
                                 await log_channel.send(embed=embed)
@@ -487,12 +488,8 @@ class DanddobotClient(discord.Client):
                 "\n\n[🚨 대화 거부 / 차단 권한 시스템]\n"
                 "당신(단또봇)은 상대방의 말이나 태도가 너무 저급하거나 비하 및 저질 욕설을 남발할 때, 혹은 의미 없는 이모티콘 도배나 무의미한 헛소리 및 앵무새 같은 반복적인 내용을 계속 무의미하게 연타해 입력할 때 스스로 대화를 일정 시간 거부(차단)할 권리가 있습니다.\n"
                 "다만, 너무 사소한 장난이나 조그만 시비에는 차단하지 말고 최대한 유연하고 유하게 대처하십시오. 칼차단은 지양해야 합니다. 정말 수준 이하의 무의미한 도배나 저급한 내용으로 더는 대화를 이어가기 불가능할 때만 진짜 차단하십시오.\n"
-                "차단을 내리기로 결정했다면, 답변 글의 맨 첫 줄에 반드시 다음 중 하나의 차단 태그를 삽입하고, 그 뒤에는 진짜 급정색하며 거친 쌍욕과 함께 즉각 차단을 선언하는 차가운 한마디 멘트를 쏘아붙이십시오.\n"
-                "• 형식: `[BLOCK_USER_1M]` (1분 차단)\n"
-                "• 형식: `[BLOCK_USER_2M]` (2분 차단)\n"
-                "• 형식: `[BLOCK_USER_3M]` (3분 차단)\n"
-                "예시: `[BLOCK_USER_2M] 아 씨발. 적당히 하라냥. 좆같은 새끼야.`\n"
-                "반드시 상황에 맞게 1M, 2M, 3M 중 하나를 골라 맨 첫 줄에 삽입하고, 뒷부분에는 가식 없는 급정색 말투로 쌍욕 및 거친 차단 통보만 단호하고 단순하게 적으십시오."
+                "차단을 내리기로 결정했다면, 답변 글의 맨 첫 줄에 반드시 `[BLOCK_USER]` 태그를 정확하게 삽입하고, 그 뒤에는 진짜 급정색하며 거친 쌍욕과 함께 즉각 차단을 선언하는 차가운 한마디 멘트를 쏘아붙이십시오.\n"
+                "반드시 차단 결정 시 맨 첫 줄에 `[BLOCK_USER]` 태그를 넣고, 뒷부분에는 가식 없는 급정색 말투로 욕설 및 거친 차단 통보만 단호하고 단순하게 적으십시오. 시스템적인 카드나 안내 가이드는 적지 마십시오. 예시 문장은 따로 드리지 않으니 단또 고양이 콘셉트에 어울리는 정색 욕설 대사를 다양하고 매우 창의적으로 직접 작문하여 출력하십시오."
             )
             system_prompt = f"{system_prompt}{block_instructions}"
 
@@ -544,22 +541,20 @@ class DanddobotClient(discord.Client):
             else:
                 # Parse AI-initiated blocks
                 import re
-                block_match = re.match(r"^\[BLOCK_USER_(?P<dur>1M|2M|3M)\]\s*(?P<reason>.+)", response, re.DOTALL)
+                import random
+                block_match = re.match(r"^\[BLOCK_USER\]\s*(?P<reason>.+)", response, re.DOTALL)
                 if block_match:
-                    duration_str = block_match.group("dur")
                     reason = block_match.group("reason").strip()
                     
-                    # Calculate duration in seconds
-                    duration_secs = 60
-                    if duration_str == "2M":
-                        duration_secs = 120
-                    elif duration_str == "3M":
-                        duration_secs = 180
+                    # Calculate random duration between 1 and 5 minutes (60 to 300 seconds)
+                    duration_mins = random.randint(1, 5)
+                    duration_secs = duration_mins * 60
                         
                     ban_until = datetime.datetime.now() + datetime.timedelta(seconds=duration_secs)
                     self.user_blocks[message.author.id] = {
                         "until": ban_until,
                         "reason": reason,
+                        "duration_mins": duration_mins,
                         "last_notified": time.time()
                     }
                     
