@@ -634,14 +634,11 @@ class RPSAcceptView(discord.ui.View):
         
         if self.message:
             try:
-                embed = discord.Embed(
-                    title="⏱️ 가위바위보 대결 수락 시간 초과",
-                    description=f"{self.opponent.mention}님이 30초 내에 대결을 수락하지 않아 가위바위보 대결 신청이 만료 취소되었습니다옹!",
-                    color=0xE74C3C
-                )
-                await self.message.edit(embed=embed, view=None)
-            except Exception:
-                pass
+                # Completely delete the challenge message on 30-second timeout
+                await self.message.delete()
+                logger.info("RPS challenge message deleted automatically due to 30-second acceptance timeout.")
+            except Exception as e:
+                logger.warning(f"Failed to delete timed out RPS challenge message: {e}")
             
     @discord.ui.button(label="🟢 대결 수락", style=discord.ButtonStyle.success, custom_id="rps_accept")
     async def accept_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -660,18 +657,31 @@ class RPSAcceptView(discord.ui.View):
         if not u_challenger or u_challenger["money"] < self.bet_amount:
             ACTIVE_RPS_PLAYERS.discard(self.challenger.id)
             ACTIVE_RPS_PLAYERS.discard(self.opponent.id)
-            await interaction.response.send_message(f"❌ 신청자 {self.challenger.display_name}님의 보유 자산이 신청 시점과 달리 모자라 경기 진행이 불가능합니다옹!", ephemeral=True)
-            # update embed
-            embed = discord.Embed(title="❌ 경기 진행 무산", description="신청자의 자산 변동 문제로 취소되었습니다옹.", color=0xE74C3C)
-            await interaction.message.edit(embed=embed, view=None)
+            
+            # Primary response: edit the message to failed status
+            embed = discord.Embed(title="❌ 경기 진행 무산", description=f"신청자 {self.challenger.display_name}님의 자산 부족 문제로 취소되었습니다옹.", color=0xE74C3C)
+            await interaction.response.edit_message(embed=embed, view=None)
+            
+            # Secondary response: send ephemeral error explanation
+            try:
+                await interaction.followup.send(f"❌ 신청자 {self.challenger.display_name}님의 보유 자산이 신청 시점과 달리 모자라 경기 진행이 불가능합니다옹!", ephemeral=True)
+            except Exception:
+                pass
             return
             
         if not u_opponent or u_opponent["money"] < self.bet_amount:
             ACTIVE_RPS_PLAYERS.discard(self.challenger.id)
             ACTIVE_RPS_PLAYERS.discard(self.opponent.id)
-            await interaction.response.send_message("❌ 본인의 미니게임 가입 보유 자산이 배팅액 대비 부족하여 수락이 불가능하다옹!", ephemeral=True)
-            embed = discord.Embed(title="❌ 경기 진행 무산", description="수락자의 자산 부족 문제로 취소되었습니다옹.", color=0xE74C3C)
-            await interaction.message.edit(embed=embed, view=None)
+            
+            # Primary response: edit the message to failed status
+            embed = discord.Embed(title="❌ 경기 진행 무산", description=f"수락자 {self.opponent.display_name}님의 자산 부족 문제로 취소되었습니다옹.", color=0xE74C3C)
+            await interaction.response.edit_message(embed=embed, view=None)
+            
+            # Secondary response: send ephemeral error explanation
+            try:
+                await interaction.followup.send("❌ 본인의 미니게임 가입 보유 자산이 배팅액 대비 부족하여 수락이 불가능하다옹!", ephemeral=True)
+            except Exception:
+                pass
             return
             
         # Update cooldown timestamp to current time for both players to lock them
@@ -725,8 +735,15 @@ class RPSAcceptView(discord.ui.View):
             description=f"{who} {interaction.user.mention}님이 세기의 가위바위보 대결 매치를 취소/거절하셨습니다옹!",
             color=0xE74C3C
         )
-        await interaction.message.edit(embed=embed, view=None)
-        await interaction.response.send_message("✅ 대결 거절/취소 처리가 완료되었습니다.", ephemeral=True)
+        
+        # Primary response: edit message to show declined status and remove buttons
+        await interaction.response.edit_message(embed=embed, view=None)
+        
+        # Secondary response: send ephemeral confirmation
+        try:
+            await interaction.followup.send("✅ 대결 거절/취소 처리가 완료되었습니다.", ephemeral=True)
+        except Exception:
+            pass
 
 
 class RPSMainChoiceView(discord.ui.View):
