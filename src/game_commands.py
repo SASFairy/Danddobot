@@ -369,6 +369,88 @@ def setup_game_commands(client: discord.Client):
             logger.error(f"Error handling confirm_status command for {username} ({user_id}): {e}")
             await interaction.response.send_message("❌ 내 정보 확인 도중 치명적인 시스템 오류가 발생했다냥!", ephemeral=True)
 
+    @client.tree.command(name="랭킹", description="단또봇 미니게임 부자 랭킹 Top 5를 조회합니다. (3분 쿨타임, 1분 뒤 삭제)")
+    async def view_ranking(interaction: discord.Interaction):
+        db = getattr(client, "db", None)
+        if not db:
+            await interaction.response.send_message("❌ 데이터베이스 시스템이 로딩되지 않았다냥!", ephemeral=True)
+            return
+
+        user_id = interaction.user.id
+        username = interaction.user.display_name
+
+        try:
+            # 1. Cooldown Check (3 minutes = 180s)
+            import datetime
+            now = datetime.datetime.now()
+            if user_id in RANKING_COOLDOWNS:
+                diff = now - RANKING_COOLDOWNS[user_id]
+                if diff.total_seconds() < 180:
+                    remaining = int(180 - diff.total_seconds())
+                    await interaction.response.send_message(
+                        f"❌ 아직 랭킹 확인 쿨다운이다냥! 그렇게나 재력이 궁금하냥?\n"
+                        f"• 남은 재조회 대기시간: **{remaining}초**",
+                        ephemeral=True
+                    )
+                    return
+
+            # Apply Cooldown
+            RANKING_COOLDOWNS[user_id] = now
+
+            # 2. Check if user is registered to prevent unregistered ranking spam
+            user = await db.get_user(user_id)
+            if not user:
+                await interaction.response.send_message("⚠️ 아직 가입하지 않았다냥!\n먼저 `/가입` 명령어를 입력해 등록하라냥!", ephemeral=True)
+                return
+
+            # 3. Retrieve Top 5 Richest Users
+            top_users = await db.get_top_users(5)
+            if not top_users:
+                await interaction.response.send_message("🐱 아직 미니게임에 가입한 회원이 한 명도 없다냥!", ephemeral=True)
+                return
+
+            embed = discord.Embed(
+                title="🏆 단또봇 미니게임 실시간 부자 랭킹 (Top 5) 🏆",
+                description="현재 단또봇 나라에서 가장 자산이 풍족한 자산가 랭킹이다냥!\n"
+                            "⚠️ *이 메시지는 도배 방지를 위해 1분(60초) 뒤에 폭파된다냥!*",
+                color=0xF1C40F  # Gold
+            )
+            
+            medals = ["🥇", "🥈", "🥉", "🏅", "🎗️"]
+            leaderboard_lines = []
+            for idx, u in enumerate(top_users):
+                medal = medals[idx] if idx < len(medals) else "▫️"
+                user_display = f"**{u['username']}**" if u['user_id'] == user_id else f"`{u['username']}`"
+                leaderboard_lines.append(f"{medal} **{idx+1}위** | {user_display} — **{u['money']:,}원** (연속 `{u['streak']}일` 출석)")
+
+            embed.add_field(name="💰 재산 순위표", value="\n".join(leaderboard_lines), inline=False)
+            
+            # Show requesting user's status below the rank
+            user_rank_str = "순위권 외냥! 더 많은 골드를 획득하라냥!"
+            all_users = await db.get_top_users(999999)
+            user_idx = next((i for i, u in enumerate(all_users) if u['user_id'] == user_id), None)
+            if user_idx is not None:
+                user_rank_str = f"현재 **{user_idx + 1}위** / 총 `{len(all_users)}명`"
+            
+            embed.set_footer(text=f"내 순위: {user_rank_str} • 조회자: {username}")
+            
+            # Send public message
+            await interaction.response.send_message(embed=embed, ephemeral=False)
+
+            # 4. Asynchronously handle auto-deletion after 60s
+            await asyncio.sleep(60)
+            try:
+                await interaction.delete_original_response()
+            except Exception:
+                pass
+
+        except Exception as e:
+            logger.error(f"Error handling ranking command for {username} ({user_id}): {e}")
+            try:
+                await interaction.response.send_message("❌ 랭킹을 가져오는 도중 예기치 못한 시스템 오류가 발생했다냥!", ephemeral=True)
+            except Exception:
+                pass
+
     @client.tree.command(name="가위바위보", description="다른 사용자와 가위바위보 내기를 진행합니다. (수수료 20%, 5분 쿨다운)")
     @app_commands.describe(
         opponent="내기를 신청할 대상 디스코드 사용자",
@@ -766,6 +848,7 @@ async def send_rps_debug_log(client, text: str):
 # Globals for Rock-Paper-Scissors
 RPS_COOLDOWNS = {}  # user_id -> datetime of last match (start/accept)
 ACTIVE_RPS_PLAYERS = set()  # set of user_ids currently in an active game
+RANKING_COOLDOWNS = {}  # user_id -> datetime of last ranking check
 
 # Globals for Begging
 ACTIVE_BEGGING_SESSIONS = {} # message_id -> session dict
