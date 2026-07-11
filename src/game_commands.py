@@ -682,14 +682,7 @@ class RPSAcceptView(discord.ui.View):
         # We start the game session
         session = RPSGameSession(self.client, self.challenger, self.opponent, self.bet_amount, interaction.message)
         
-        # Send ephemeral choice response to opponent B immediately on acceptance
-        await interaction.response.send_message(
-            "✅ 대결을 수락하셨습니다옹!\n아래 나만 보기 버튼을 눌러 **10초 이내**에 가위, 바위, 보 중 하나를 선택해 주세요!",
-            view=RPSIndividualChoiceView(self.opponent.id, session),
-            ephemeral=True
-        )
-        
-        # Update public message to choice state
+        # Update public message to choice state (primary response)
         embed = discord.Embed(
             title="✊✌️✋ 선택 페이즈 시작!",
             description=f"### 두 플레이어는 10초 이내에 자신의 숨겨진 선택지를 클릭해야 합니다옹!\n\n"
@@ -700,7 +693,17 @@ class RPSAcceptView(discord.ui.View):
             color=0xF39C12
         )
         view = RPSMainChoiceView(self.client, session)
-        await interaction.message.edit(embed=embed, view=view)
+        await interaction.response.edit_message(embed=embed, view=view)
+        
+        # Send ephemeral choice response to opponent B immediately using followup
+        try:
+            await interaction.followup.send(
+                "✅ 대결을 수락하셨습니다옹!\n아래 바위, 가위, 보 중 하나를 **10초 이내**에 선택해 주세요!",
+                view=RPSIndividualChoiceView(self.opponent.id, session),
+                ephemeral=True
+            )
+        except Exception as followup_err:
+            logger.error(f"Failed to send opponent followup choice message: {followup_err}")
         
         # Start the 10-second game countdown in the background
         asyncio.create_task(view.start_countdown())
