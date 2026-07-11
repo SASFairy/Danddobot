@@ -26,6 +26,9 @@ jobs:
             # Navigate to the configured project path on your server
             cd "${{ secrets.PROJECT_PATH }}" || { echo "❌ Directory not found!"; exit 1; }
             
+            # Configure SSH to bypass Host Key Verification for this session
+            export GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no"
+            
             # Fetch and dynamically checkout the branch that triggered this deployment
             echo "📥 Fetching latest code for branch: ${{ github.ref_name }}..."
             git fetch origin
