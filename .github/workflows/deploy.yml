@@ -2,11 +2,6 @@ name: Deploy Danddobot to Server
 
 on:
   push:
-    branches:
-      - main
-      - dev
-      - 'feature/*'
-      - UmJunShik
   workflow_dispatch:
 
 
