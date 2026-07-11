@@ -303,6 +303,7 @@ class DanddobotClient(discord.Client):
 
             # Use cached system prompt (hot-reloaded dynamically from memory)
             system_prompt = self.persona_prompt
+            rag_context = ""
 
             # Retrieve RAG context if enabled
             if self.rag_manager.is_enabled:
@@ -342,7 +343,8 @@ class DanddobotClient(discord.Client):
                             response=None,
                             latency=latency,
                             is_error=True,
-                            error_message=str(llm_error)
+                            error_message=str(llm_error),
+                            rag_context=rag_context
                         )
                     )
                 else:
@@ -352,7 +354,8 @@ class DanddobotClient(discord.Client):
                             prompt=user_content_for_llm,
                             response=response,
                             latency=latency,
-                            is_error=False
+                            is_error=False,
+                            rag_context=rag_context
                         )
                     )
 
@@ -390,7 +393,7 @@ class DanddobotClient(discord.Client):
                         logger.error(f"Failed to send message chunk {idx}: {e}")
 
 
-    async def send_debug_log(self, message: discord.Message, prompt: str, response: Optional[str], latency: float, is_error: bool = False, error_message: Optional[str] = None):
+    async def send_debug_log(self, message: discord.Message, prompt: str, response: Optional[str], latency: float, is_error: bool = False, error_message: Optional[str] = None, rag_context: Optional[str] = None):
         """
         Builds and sends a premium Discord Embed log to the configured log channel.
         This must be safe, sliced, non-blocking, and handled gracefully.
@@ -472,8 +475,17 @@ class DanddobotClient(discord.Client):
             )
             embed.add_field(name="⚙️ 생성 하이퍼파라미터 (Generation Parameters)", value=hyperparams_summary, inline=False)
 
-            # Prompt & Response fields
+            # Prompt, RAG Context, and Response fields
             embed.add_field(name="📝 프롬프트 (Raw Prompt)", value=f"```\n{safe_prompt}\n```", inline=False)
+            
+            # Add RAG Context field if retrieved
+            if rag_context:
+                if len(rag_context) > 1000:
+                    safe_rag = rag_context[:1000] + "\n\n⚠️ 참고 지식이 너무 길어 일부가 잘렸습니다."
+                else:
+                    safe_rag = rag_context
+                embed.add_field(name="🧠 RAG 참고 지식 (Retrieved Context)", value=f"```\n{safe_rag}\n```", inline=False)
+
             embed.add_field(name="📤 생성된 답변 (Response)", value=f"```\n{safe_response}\n```", inline=False)
 
             if files:
