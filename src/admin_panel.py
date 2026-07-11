@@ -898,7 +898,7 @@ class AdminDashboardView(ui.View):
         modal = AdminMessageSendModal(self.client)
         await interaction.response.send_modal(modal)
 
-    @ui.button(label="👤 사용자 구분: Off", style=discord.ButtonStyle.secondary, custom_id="danddobot_admin_toggle_distinguish", row=2)
+    @ui.button(label="👤 사용자 구분: Off", style=discord.ButtonStyle.secondary, custom_id="danddobot_admin_toggle_distinguish", row=0)
     async def toggle_distinguish_btn(self, interaction: discord.Interaction, button: ui.Button):
         logger.info(f"Toggle distinguish requested by user {interaction.user}")
         new_state = await self.client.toggle_distinguish_users()
