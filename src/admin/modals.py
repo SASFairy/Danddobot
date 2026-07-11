@@ -444,3 +444,102 @@ class AdminMessageSendModal(ui.Modal, title="📣 활성 채널로 메시지 전
         except Exception as e:
             logger.error(f"Failed to send arbitrary message to active channel: {e}")
             await interaction.response.send_message(f"❌ 메시지 전송 중 오류가 발생했습니다: `{e}`", ephemeral=True)
+
+
+class RagParametersEditModal(ui.Modal, title="📖 RAG 지능형 지식 엔진 설정"):
+    """
+    Discord Modal to dynamically configure the RAG search and chunking parameters.
+    """
+    def __init__(self, client: discord.Client):
+        super().__init__()
+        self.client = client
+        
+        current_top_k = getattr(client.rag_manager, "top_k", 3)
+        current_max_chars = getattr(client.rag_manager, "max_chars", 1500)
+        current_chunk_size = getattr(client.rag_manager, "chunk_size", 500)
+        
+        self.top_k_input = ui.TextInput(
+            label="RAG 검색 문서 수 (Top-K: 1~10)",
+            placeholder="기본값: 3 (매칭율이 가장 높은 상위 문서 조각 수)",
+            default=str(current_top_k),
+            required=True,
+            max_length=2
+        )
+        self.max_chars_input = ui.TextInput(
+            label="최대 전달 글자수 (Max Chars: 50~4000)",
+            placeholder="기본값: 1500 (LLM 페르소나에 주입될 총 최대 글자 제한)",
+            default=str(current_max_chars),
+            required=True,
+            max_length=4
+        )
+        self.chunk_size_input = ui.TextInput(
+            label="청크 제한 크기 (Chunk Size: 10~1000)",
+            placeholder="기본값: 500 (문서를 쪼갤 때의 타겟 개별 글자 제한 크기)",
+            default=str(current_chunk_size),
+            required=True,
+            max_length=4
+        )
+        
+        self.add_item(self.top_k_input)
+        self.add_item(self.max_chars_input)
+        self.add_item(self.chunk_size_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        client = self.client
+        
+        top_k_str = self.top_k_input.value.strip()
+        max_chars_str = self.max_chars_input.value.strip()
+        chunk_size_str = self.chunk_size_input.value.strip()
+        
+        try:
+            top_k = int(top_k_str)
+            if top_k < 1 or top_k > 10:
+                await interaction.response.send_message("❌ RAG Top-K는 1에서 10 사이의 정수여야 합니다.", ephemeral=True)
+                return
+        except ValueError:
+            await interaction.response.send_message("❌ Top-K 수치로 올바른 정수를 입력해 주세요.", ephemeral=True)
+            return
+
+        try:
+            max_chars = int(max_chars_str)
+            if max_chars < 50 or max_chars > 4000:
+                await interaction.response.send_message("❌ 최대 글자수는 50자에서 4000자 사이여야 합니다.", ephemeral=True)
+                return
+        except ValueError:
+            await interaction.response.send_message("❌ 최대 글자수 수치로 올바른 정수를 입력해 주세요.", ephemeral=True)
+            return
+
+        try:
+            chunk_size = int(chunk_size_str)
+            if chunk_size < 10 or chunk_size > 1000:
+                await interaction.response.send_message("❌ 청크 제한 크기는 10자에서 1000자 사이여야 합니다.", ephemeral=True)
+                return
+        except ValueError:
+            await interaction.response.send_message("❌ 청크 크기로 올바른 정수를 입력해 주세요.", ephemeral=True)
+            return
+
+        # Invoke Settings Controller to update and persist
+        await client.settings.update_rag_parameters(
+            top_k=top_k,
+            max_chars=max_chars,
+            chunk_size=chunk_size
+        )
+        
+        # Determine actual applied values (since chunk_size might get clamped to max_chars)
+        applied_chunk_size = client.rag_manager.chunk_size
+
+        # Rebuild dashboard view & edit message
+        # We import here locally to bypass circular imports
+        from .views import AdminDashboardView
+        embed = build_dashboard_embed(client, status_msg="RAG 지식 엔진 설정 변경 완료")
+        new_view = AdminDashboardView(client)
+        await interaction.message.edit(embed=embed, view=new_view)
+        
+        await interaction.response.send_message(
+            f"✅ **RAG 지능형 지식 엔진 설정이 업데이트되었습니다!**\n"
+            f"• **Top-K**: `{top_k}개` (상위 조각 매칭)\n"
+            f"• **최대 글자수 (Max Chars)**: `{max_chars}자`\n"
+            f"• **청크 제한 크기 (Chunk Size)**: `{applied_chunk_size}자` (요청값: `{chunk_size}자`" + 
+            (f", 최대 글자수 한도에 맞춰 자동 캡핑됨)" if applied_chunk_size != chunk_size else ")"),
+            ephemeral=True
+        )

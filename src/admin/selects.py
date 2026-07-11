@@ -10,7 +10,7 @@ class AdminChannelSelect(ui.Select):
     Dropdown menu listing only the pre-registered channels from config/channels.txt.
     Allows the admin to switch the active chat channel between registered options.
     """
-    def __init__(self, client: discord.Client):
+    def __init__(self, client: discord.Client, row: int = 2):
         registered: dict = getattr(client, "registered_channels", {})
         active_id: int = getattr(client, "active_channel_id", None)
 
@@ -43,7 +43,7 @@ class AdminChannelSelect(ui.Select):
             min_values=1,
             max_values=1,
             custom_id="danddobot_admin_channel_select",
-            row=2
+            row=row
         )
 
     async def callback(self, interaction: discord.Interaction):
@@ -89,7 +89,7 @@ class AdminProviderSelect(ui.Select):
     Dropdown menu listing available LLM providers configured in the environment (.env).
     Allows the admin to switch the active LLM provider dynamic and gracefully.
     """
-    def __init__(self, client: discord.Client):
+    def __init__(self, client: discord.Client, row: int = 3):
         provider_urls: dict[str, str] = getattr(client, "provider_urls", {})
         
         # Determine currently active provider name
@@ -121,7 +121,7 @@ class AdminProviderSelect(ui.Select):
             min_values=1,
             max_values=1,
             custom_id="danddobot_admin_provider_select",
-            row=3
+            row=row
         )
 
     async def callback(self, interaction: discord.Interaction):
@@ -166,7 +166,7 @@ class AdminModelSelect(ui.Select):
     Dropdown menu listing available models fetched from the LLM backend on startup.
     Allows the admin to switch the active LLM model.
     """
-    def __init__(self, client: discord.Client):
+    def __init__(self, client: discord.Client, row: int = 4):
         available_models: list[str] = getattr(client, "available_models", [])
         current_model: str = "unknown"
         if hasattr(client, "llm_client") and client.llm_client:
@@ -191,7 +191,7 @@ class AdminModelSelect(ui.Select):
             min_values=1,
             max_values=1,
             custom_id="danddobot_admin_model_select",
-            row=4
+            row=row
         )
 
     async def callback(self, interaction: discord.Interaction):
@@ -219,3 +219,67 @@ class AdminModelSelect(ui.Select):
                 f"❌ LLM 모델 변경 중 오류가 발생했습니다: `{e}`",
                 ephemeral=True
             )
+
+
+class AdminCategorySelect(ui.Select):
+    """
+    Dropdown menu allowing the admin to switch the active dashboard tab/category.
+    """
+    def __init__(self, current_category: str):
+        options = [
+            discord.SelectOption(
+                label="🤖 LLM 엔진 및 모델 설정",
+                value="llm",
+                description="LLM 프로바이더, 모델 변경, 타임아웃 및 옵션을 수정합니다.",
+                emoji="🤖",
+                default=(current_category == "llm")
+            ),
+            discord.SelectOption(
+                label="🧠 대화 기억 및 문맥 설정",
+                value="memory",
+                description="대화 기억 On/Off, 저장 한도 및 채팅 내역을 조작합니다.",
+                emoji="🧠",
+                default=(current_category == "memory")
+            ),
+            discord.SelectOption(
+                label="📖 RAG 지능형 지식 엔진",
+                value="rag",
+                description="RAG 엔진 온오프, 지식 갱신 및 파라미터를 설정합니다.",
+                emoji="📖",
+                default=(current_category == "rag")
+            ),
+            discord.SelectOption(
+                label="🛠️ 시스템 진단 및 관리 도구",
+                value="tools",
+                description="디버그 모드 전환, 시스템 진단 및 공지 메시지를 전송합니다.",
+                emoji="🛠️",
+                default=(current_category == "tools")
+            ),
+        ]
+        super().__init__(
+            placeholder="📁 메뉴 분류를 고르시면 관련 버튼들이 노출됩니다...",
+            options=options,
+            min_values=1,
+            max_values=1,
+            custom_id="danddobot_admin_category_select",
+            row=0
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        view = self.view
+        selected_category = self.values[0]
+        view.current_category = selected_category
+        
+        # Refresh the components dynamically based on the selected tab
+        view.refresh_components()
+        
+        from .embeds import build_dashboard_embed
+        status_name = {
+            "llm": "LLM 엔진 설정",
+            "memory": "대화 기억 설정",
+            "rag": "RAG 지능형 엔진",
+            "tools": "진단 및 관리 도구"
+        }.get(selected_category, "대시보드")
+        
+        embed = build_dashboard_embed(interaction.client, status_msg=f"메뉴 탭 변경: {status_name}")
+        await interaction.response.edit_message(embed=embed, view=view)

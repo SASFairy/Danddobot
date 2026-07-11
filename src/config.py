@@ -147,10 +147,32 @@ class AppConfig:
             except ValueError:
                 logger.warning(f"RAG_CHUNK_SIZE must be a valid integer. Received: '{rag_chunk_size_raw}'. Defaulting to 500.")
 
+        # Override RAG settings from State Manager if present
+        persisted_rag_enabled = state_manager.get_value("rag_enabled")
+        if persisted_rag_enabled is not None:
+            self.rag_enabled = persisted_rag_enabled
+            logger.info(f"Loaded persisted rag_enabled from StateManager: {self.rag_enabled}")
+
+        persisted_rag_top_k = state_manager.get_value("rag_top_k")
+        if persisted_rag_top_k is not None:
+            self.rag_top_k = persisted_rag_top_k
+            logger.info(f"Loaded persisted rag_top_k from StateManager: {self.rag_top_k}")
+
+        persisted_rag_max_chars = state_manager.get_value("rag_max_chars")
+        if persisted_rag_max_chars is not None:
+            self.rag_max_chars = persisted_rag_max_chars
+            logger.info(f"Loaded persisted rag_max_chars from StateManager: {self.rag_max_chars}")
+
+        persisted_rag_chunk_size = state_manager.get_value("rag_chunk_size")
+        if persisted_rag_chunk_size is not None:
+            self.rag_chunk_size = persisted_rag_chunk_size
+            logger.info(f"Loaded persisted rag_chunk_size from StateManager: {self.rag_chunk_size}")
+
         # Safety boundary: chunk_size shouldn't exceed max_chars to avoid empty context deliveries
         if self.rag_chunk_size > self.rag_max_chars:
             logger.warning(f"RAG_CHUNK_SIZE ({self.rag_chunk_size}) is greater than RAG_MAX_CHARS ({self.rag_max_chars}). Automatically capping chunk_size to {self.rag_max_chars} to ensure retrieval delivery.")
             self.rag_chunk_size = self.rag_max_chars
 
         logger.info(f"RAG Configuration Loaded - Enabled: {self.rag_enabled}, Directory: {self.rag_knowledge_dir}, Top-K: {self.rag_top_k}, Max Characters: {self.rag_max_chars}, Chunk Size Limit: {self.rag_chunk_size}")
+
 

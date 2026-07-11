@@ -61,6 +61,16 @@ def build_dashboard_embed(client: discord.Client, status_msg: str = "정상 작�
     distinguish_users = getattr(client, "distinguish_users", True)
     distinguish_status = "🟢 활성화" if distinguish_users else "🔴 비활성화"
 
+    rag_status = "🔴 비활성화"
+    if hasattr(client, "rag_manager") and client.rag_manager:
+        if client.rag_manager.is_enabled:
+            chunk_cnt = len(client.rag_manager.retriever.documents) if hasattr(client.rag_manager.retriever, "documents") else 0
+            rag_status = (
+                f"🟢 활성화 (색인 청크: `{chunk_cnt}개`)\n"
+                f"• **Top-K**: `{client.rag_manager.top_k}` | **최대 글자수**: `{client.rag_manager.max_chars}자`\n"
+                f"• **청크 제한 크기**: `{client.rag_manager.chunk_size}자`"
+            )
+
     embed = discord.Embed(
         title="🤖 Danddobot 관리 대시보드",
         description="단또봇의 실시간 상태를 모니터링하고 설정을 변경할 수 있는 전용 채널 콘솔입니다.",
@@ -72,6 +82,7 @@ def build_dashboard_embed(client: discord.Client, status_msg: str = "정상 작�
     embed.add_field(name="🧠 대화 기억 상태", value=f"`{memory_status}`", inline=True)
     embed.add_field(name="🔧 디버그 모드", value=f"`{debug_status}`", inline=True)
     embed.add_field(name="👤 사용자 구분", value=f"`{distinguish_status}`", inline=True)
+    embed.add_field(name="📖 RAG 지식 엔진 상태", value=rag_status, inline=False)
     embed.add_field(name="🧠 LLM 엔진 설정", value=llm_info, inline=False)
     embed.add_field(name="📄 페르소나 설정", value=persona_status, inline=False)
     embed.set_footer(text=f"마지막 업데이트: {time.strftime('%Y-%m-%d %H:%M:%S')}")

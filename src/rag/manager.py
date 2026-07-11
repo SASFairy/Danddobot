@@ -111,7 +111,10 @@ class RAGManager:
             self.retriever.index_documents(documents)
             logger.info(f"Successfully loaded {doc_count} files and indexed {chunk_count} safe chunks (Chunk size limit: {self.chunk_size}).")
         else:
+            self.retriever.index_documents([])  # Reset if empty
             logger.warning(f"No valid knowledge documents found in {self.knowledge_dir}")
+
+        return doc_count, chunk_count
 
     def retrieve_context(self, query: str) -> str:
         """사용자 질문에 대응하는 참고 문맥을 무결한 문단들의 결합 텍스트로 합쳐 반환합니다."""
