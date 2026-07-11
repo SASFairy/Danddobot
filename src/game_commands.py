@@ -433,6 +433,22 @@ def setup_game_commands(client: discord.Client):
 
             # 5. Cooldown checks (5 mins = 300s)
             now = datetime.datetime.now()
+            
+            # Clean up expired cooldowns to maintain dictionary hygiene
+            expired_keys = [k for k, v in RPS_COOLDOWNS.items() if (now - v).total_seconds() >= 300]
+            for ek in expired_keys:
+                RPS_COOLDOWNS.pop(ek, None)
+                
+            # Log current cooldowns to the consolidated debug channel
+            active_cooldown_seconds = {k: int(300 - (now - v).total_seconds()) for k, v in RPS_COOLDOWNS.items()}
+            asyncio.create_task(send_rps_debug_log(
+                client,
+                f"[RPS-COOLDOWN-CHECK]\n"
+                f"• Challenger: {challenger.display_name} (ID: {challenger.id})\n"
+                f"• Opponent: {opponent.display_name} (ID: {opponent.id})\n"
+                f"• Active Cooldowns (Remaining Sec): {active_cooldown_seconds}"
+            ))
+            
             if challenger.id in RPS_COOLDOWNS:
                 diff = now - RPS_COOLDOWNS[challenger.id]
                 if diff.total_seconds() < 300:
@@ -481,24 +497,58 @@ def setup_game_commands(client: discord.Client):
             await interaction.response.send_message("❌ 가위바위보 신청 진행 중 시스템 에러가 발생했다옹!", ephemeral=True)
 
 
-async def send_rps_debug_log(client, text: str):
-    logger.info(text)
-    # Also send to Discord log channel if configured
+RPS_LOG_BUFFER = []
+RPS_LOG_FLUSH_TASK = None
+
+async def flush_rps_debug_logs(client):
+    # Wait for 0.6 seconds to gather any rapidly incoming logs
+    await asyncio.sleep(0.6)
+    
+    global RPS_LOG_BUFFER, RPS_LOG_FLUSH_TASK
+    if not RPS_LOG_BUFFER:
+        RPS_LOG_FLUSH_TASK = None
+        return
+        
+    # Safely swap out the buffer contents
+    logs_to_send = list(RPS_LOG_BUFFER)
+    RPS_LOG_BUFFER.clear()
+    RPS_LOG_FLUSH_TASK = None
+    
+    combined_text = "\n".join(logs_to_send)
+    
+    # Also log to terminal
+    logger.info(f"[RPS-DEBUG-FLUSHED] Consolidated logs:\n{combined_text}")
+    
     if getattr(client, "log_channel_id", None):
         try:
             log_channel = client.get_channel(client.log_channel_id)
             if not log_channel:
                 log_channel = await client.fetch_channel(client.log_channel_id)
             if log_channel:
+                # If too long, truncate gracefully to fit inside Discord's 2000 char embed limit
+                if len(combined_text) > 1900:
+                    combined_text = combined_text[:1900] + "\n... (truncated)"
+                    
                 embed = discord.Embed(
-                    title="✊✌️✋ 가위바위보 디버그 로그",
-                    description=f"```\n{text}\n```",
+                    title="✊✌️✋ 가위바위보 통합 디버그 로그",
+                    description=f"```\n{combined_text}\n```",
                     color=0xE67E22,
                     timestamp=discord.utils.utcnow()
                 )
                 await log_channel.send(embed=embed)
         except Exception as e:
-            logger.error(f"Failed to send RPS debug log to log channel: {e}")
+            logger.error(f"Failed to send combined RPS debug log: {e}")
+
+async def send_rps_debug_log(client, text: str):
+    # Log to terminal console immediately
+    logger.info(text)
+    
+    # Append to buffer for Discord grouping
+    RPS_LOG_BUFFER.append(text)
+    
+    global RPS_LOG_FLUSH_TASK
+    if RPS_LOG_FLUSH_TASK is None or RPS_LOG_FLUSH_TASK.done():
+        RPS_LOG_FLUSH_TASK = asyncio.create_task(flush_rps_debug_logs(client))
 
 
 # Globals for Rock-Paper-Scissors
