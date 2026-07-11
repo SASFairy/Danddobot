@@ -80,6 +80,7 @@ class DanddobotClient(discord.Client):
         self.max_memory_length: int = self.state_manager.get_value("max_memory_length", 10)
         self.active_channel_id: Optional[int] = self.state_manager.get_value("channel_id")
         self.debug_mode: bool = self.state_manager.get_value("debug_mode", False)
+        self.distinguish_users: bool = self.state_manager.get_value("distinguish_users", True)
 
         if self.active_channel_id and int(self.active_channel_id) in self.registered_channels:
             self.active_channel_id = int(self.active_channel_id)
@@ -108,7 +109,8 @@ class DanddobotClient(discord.Client):
             f"Admin channel: {self.admin_channel_id}, "
             f"Log channel: {self.log_channel_id}, "
             f"Memory Enabled: {self.use_memory} (Max capacity: {self.max_memory_length}), "
-            f"Debug Mode Enabled: {self.debug_mode}"
+            f"Debug Mode Enabled: {self.debug_mode}, "
+            f"Distinguish Users Enabled: {self.distinguish_users}"
         )
 
     async def update_active_channel(self, new_channel_id: int):
@@ -414,6 +416,12 @@ class DanddobotClient(discord.Client):
             user_content = message.content
             logger.info(f"Received message from {message.author} in target channel: '{user_content[:50]}...'")
 
+            # Determine the user content prefix based on config
+            if self.distinguish_users:
+                user_content_for_llm = f"[{message.author.display_name}]: {user_content}"
+            else:
+                user_content_for_llm = user_content
+
             # Load system prompt dynamically
             system_prompt = self.load_persona()
 
@@ -428,7 +436,7 @@ class DanddobotClient(discord.Client):
             start_time = time.perf_counter()
             async with message.channel.typing():
                 try:
-                    response = await self.llm_client.generate_response(user_content, system_prompt, history=history)
+                    response = await self.llm_client.generate_response(user_content_for_llm, system_prompt, history=history)
                 except Exception as e:
                     logger.error(f"Failed to generate LLM response: {e}")
                     llm_error = e
@@ -440,7 +448,7 @@ class DanddobotClient(discord.Client):
                     asyncio.create_task(
                         self.send_debug_log(
                             message=message,
-                            prompt=user_content,
+                            prompt=user_content_for_llm,
                             response=None,
                             latency=latency,
                             is_error=True,
@@ -451,7 +459,7 @@ class DanddobotClient(discord.Client):
                     asyncio.create_task(
                         self.send_debug_log(
                             message=message,
-                            prompt=user_content,
+                            prompt=user_content_for_llm,
                             response=response,
                             latency=latency,
                             is_error=False
@@ -465,7 +473,7 @@ class DanddobotClient(discord.Client):
                 if self.use_memory:
                     if message.channel.id not in self.channel_history:
                         self.channel_history[message.channel.id] = []
-                    self.channel_history[message.channel.id].append({"role": "user", "content": user_content})
+                    self.channel_history[message.channel.id].append({"role": "user", "content": user_content_for_llm})
                     self.channel_history[message.channel.id].append({"role": "assistant", "content": response})
                     # Cap sliding history window using the dynamic limit
                     if len(self.channel_history[message.channel.id]) > self.max_memory_length:
