@@ -540,20 +540,20 @@ def setup_game_commands(client: discord.Client):
             prompt = (
                 f"사용자 {username}님이 현재 가진 돈이 {user_money:,}원밖에 없는 극심한 빈곤 상태에서 비굴하게 /구걸 명령어를 사용했습니다.\n"
                 f"• 사용자의 현재 잔고: {user_money:,}원\n\n"
-                f"이 유저가 얼마나 비참하고 하찮은 처지인지 엄청나게 비극적이고 과장되고 얄밉게 묘사하고 조롱하면서, "
-                f"서버의 다른 자비로운 유저들에게 🪙(동전) 반응을 달아 기부해달라고 구걸을 대행해주는 단또봇 말투(야옹체, 츤데레, 놀림조)로 아주 짧게(3~4문장) 작성해주세요."
+                f"이 사용자가 얼마나 병신같고 비참하고 하찮은 처지인지 엄청나게 비극적이고 과장되며, 무례하면서 얄밉게 묘사하고 조롱하면서, "
+                f"서버의 다른 사용자들에게 🪙(동전) 반응을 달아 기부해달라고 구걸을 대행해주는 단또봇 말투(야옹체, 츤데레, 놀림조)로 아주 짧게(3~4문장) 작성해주세요."
             )
             ai_reaction = await client.llm_client.generate_response(prompt, client.persona_prompt)
 
             # 5. Create Embed
             embed = discord.Embed(
                 title=f"😭 {username}님의 처절한 구걸 판대기... 😭",
-                description=f"### \"한 푼만 주십쇼냥... 제발 부탁드린다냥...\"\n\n"
+                description=f"### \"한 푼만 주십쇼... 제발 부탁드립니다...\"\n\n"
                             f"• **가련한 구걸자**: {interaction.user.mention}\n"
-                            f"• **현재 보유 재잔고**: `{user_money:,}원`\n"
+                            f"• **현재 보유 잔고**: `{user_money:,}원`\n"
                             f"• **모금된 금액**: `0원`\n\n"
-                            f"⚠️ **기부 방법**: 아래에 **🪙 (동전) 이모지 반응**을 달면 본인의 자금 중 **500원**이 이 구걸자에게 실시간 기부(이체)됩니다냥!\n"
-                            f"⏰ **모금 시간**: 앞으로 **10분** 동안만 모금이 열려있습니다냥!",
+                            f"⚠️ **기부 방법**: 아래에 **🪙 (동전) 이모지 반응**을 달면 본인의 자금 중 **500원**이 이 구걸자에게 실시간 기부(이체)된다냥!\n"
+                            f"⏰ **모금 시간**: 앞으로 **10분** 동안만 모금이 열려있다냥!",
                 color=0xE67E22 # Orange
             )
             embed.add_field(name="🐱 단또봇의 비극적 고발과 놀림", value=ai_reaction, inline=False)
@@ -608,7 +608,7 @@ def setup_game_commands(client: discord.Client):
                                     f"• **가련했던 구걸자**: <@{beg_id}>\n"
                                     f"• **모금 결과**: 총 `{collected:,}원` (+{collected // 500}개 동전 적선받음)\n"
                                     f"• **최종 보유 재잔고**: `{final_money:,}원`\n\n"
-                                    f"💸 적선해 준 자비로운 집사들 덕분에 한 끼 식사값은 챙겼다냥! 짝짝짝!",
+                                    f"💸 적선해 준 그나마 자비로운 인간들 덕분에 한 끼 식사값은 챙겼다냥! 짝짝짝!",
                         color=0x7F8C8D # Gray
                     )
                     embed_end.add_field(name="🐱 단또봇의 냉혹한 총평 한마디", value=ai_reaction_end, inline=False)
@@ -627,6 +627,59 @@ def setup_game_commands(client: discord.Client):
             logger.error(f"Error executing beg command: {e}")
             try:
                 await interaction.followup.send(f"❌ 구걸 명령 중 예상치 못한 에러가 발생했다냥! {e}", ephemeral=True)
+            except Exception:
+                pass
+
+    @client.tree.command(name="가르치기", description="100만~1000만원의 비용을 지불하고 단또봇에게 명품 지식을 가르칩니다. (RAG 주입, 나만 보기)")
+    async def teach(interaction: discord.Interaction):
+        # Prevent actions if db is not initialized
+        db = getattr(client, "db", None)
+        if not db:
+            await interaction.response.send_message("❌ 데이터베이스 시스템이 로딩되지 않았다냥!", ephemeral=True)
+            return
+
+        user_id = interaction.user.id
+        username = interaction.user.display_name
+
+        try:
+            # 1. Fetch user from database
+            user = await db.get_user(user_id)
+            if not user:
+                await interaction.response.send_message("❌ 아직 가입하지 않은 단또다냥! `/가입` 명령어부터 먼저 입력하라냥!", ephemeral=True)
+                return
+
+            user_money = user["money"]
+
+            # 2. Generate random price between 1M and 10M in 1K won increments
+            price = random.randint(1000, 10000) * 1000
+
+            # 3. Check if user has enough money
+            if user_money < price:
+                await interaction.response.send_message(
+                    f"❌ 단또봇의 RAG 시스템에 지식을 주입하려면 무려 `{price:,}원`이 필요하다냥!\n"
+                    f"하지만 지금 가진 돈은 `{user_money:,}원`밖에 없다냥... 돈 더 벌어서 다시 찾아와라냥!",
+                    ephemeral=True
+                )
+                return
+
+            # 4. Show confirmation view (all ephemeral!)
+            embed = discord.Embed(
+                title="🧠 단또봇 지식 가르치기 (RAG Injection) 🧠",
+                description=f"단또봇에게 새로운 명품 지식을 가르칠 기회가 왔다냥!\n"
+                            f"제시된 무작위 정보 주입 라이선스 비용을 확인하고 진행할지 결정해 달라냥.\n\n"
+                            f"• **가르칠 자**: {interaction.user.mention}\n"
+                            f"• **제시된 무작위 교육비**: `{price:,}원`\n"
+                            f"• **현재 보유 잔고**: `{user_money:,}원` (지불 후 잔고: `{user_money - price:,}원`)\n\n"
+                            f"⚠️ **주의**: 지식을 가르치면 해당 내용은 비공개 파일(`Knowledge_Injection.txt`)에 안전하게 저장되며 단또봇의 지식으로 평생 귀속됩니다냥!",
+                color=0x9B59B6 # Purple
+            )
+            view = TeachConfirmationView(client, price, user_money)
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+        except Exception as e:
+            logger.error(f"Error executing teach command: {e}")
+            try:
+                await interaction.response.send_message(f"❌ 가르치기 명령 실행 중 에러 발생했다냥! {e}", ephemeral=True)
             except Exception:
                 pass
 
@@ -1210,4 +1263,140 @@ class RPSMainChoiceView(discord.ui.View):
     @discord.ui.button(label="✋ 보", style=discord.ButtonStyle.danger)
     async def paper_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.record_choice(interaction, "보")
+
+
+# Views and Modals for /가르치기 (RAG Knowledge Injection)
+class TeachConfirmationView(discord.ui.View):
+    def __init__(self, client, price: int, user_money: int):
+        super().__init__(timeout=60.0)
+        self.client = client
+        self.price = price
+        self.user_money = user_money
+        
+    @discord.ui.button(label="🟢 예 (지불 후 가르치기)", style=discord.ButtonStyle.success)
+    async def accept_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Double check money in case they spent it in the last 60 seconds
+        db = self.client.db
+        user = await db.get_user(interaction.user.id)
+        if not user or user["money"] < self.price:
+            await interaction.response.send_message(
+                f"❌ 그새 돈을 탕진해버렸냥?! 교육비 `{self.price:,}원`이 부족하다냥!",
+                ephemeral=True
+            )
+            return
+            
+        # We open a Discord Modal!
+        modal = TeachKnowledgeModal(self.client, self.price)
+        await interaction.response.send_modal(modal)
+        self.stop()
+        
+    @discord.ui.button(label="🔴 아니오 (취소)", style=discord.ButtonStyle.danger)
+    async def decline_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("❌ 지식 가르치기를 취소했다냥. 쳇, 평생 아메바로 살아라냥!", ephemeral=True)
+        self.stop()
+
+
+class TeachKnowledgeModal(discord.ui.Modal, title="🧠 단또봇 지식 가르치기"):
+    knowledge_input = discord.ui.TextInput(
+        label="가르칠 정보/지식 내용",
+        style=discord.TextStyle.paragraph,
+        placeholder="예: 단또봇이 제일 좋아하는 음식은 우주 명작 참치 츄르다냥.",
+        required=True,
+        min_length=10,
+        max_length=1000
+    )
+    
+    def __init__(self, client, price: int):
+        super().__init__()
+        self.client = client
+        self.price = price
+        
+    async def on_submit(self, interaction: discord.Interaction):
+        import os
+        db = self.client.db
+        user_id = interaction.user.id
+        username = interaction.user.display_name
+        knowledge_text = self.knowledge_input.value.strip()
+        
+        # Double check money
+        user = await db.get_user(user_id)
+        if not user or user["money"] < self.price:
+            await interaction.response.send_message(
+                f"❌ 트랜잭션 도중 교육비 `{self.price:,}원`이 부족한 것이 감지되었다냥!",
+                ephemeral=True
+            )
+            return
+            
+        # Deduct money
+        new_money = await db.update_money(user_id, -self.price)
+        if new_money is None or new_money == -1:
+            await interaction.response.send_message("❌ 돈 이체 중 시스템 오류가 발생했다냥!", ephemeral=True)
+            return
+            
+        # Append knowledge to Knowledge_Injection.txt
+        rag_manager = getattr(self.client, "rag_manager", None)
+        if not rag_manager:
+            await interaction.response.send_message("❌ RAG 시스템이 준비되지 않았다냥!", ephemeral=True)
+            return
+            
+        try:
+            file_path = os.path.join(rag_manager.knowledge_dir, "Knowledge_Injection.txt")
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            
+            # Check if file exists, if not, write header
+            file_exists = os.path.exists(file_path)
+            with open(file_path, "a", encoding="utf-8") as f:
+                if not file_exists:
+                    f.write("# 단또봇 주입식 RAG 지식 저장소\n")
+                f.write(f"\n\n{knowledge_text}")
+                
+            # Reload knowledge in-memory!
+            rag_manager.reload_knowledge()
+            
+        except Exception as e:
+            logger.error(f"Failed to write to Knowledge_Injection.txt: {e}")
+            await interaction.response.send_message(f"❌ 지식 파일 저장 도중 시스템 오류 발생: `{e}`", ephemeral=True)
+            return
+            
+        # Generate sassy reaction from AI
+        prompt = (
+            f"사용자 {username}님이 단또봇에게 새로운 지식을 가르치기 위해 무려 {self.price:,}원을 지불하고 RAG 지식을 주입했습니다.\n"
+            f"• 주입된 지식 내용: \"{knowledge_text}\"\n\n"
+            f"돈(무려 {self.price:,}원)을 받았으니 귀찮고 마지못해 기억해두겠다는 투로, 엄청 퉁명스럽고 싸가지없게 비꼬면서도 "
+            f"알겠다며 기억해주겠다고 대답하는 단또봇 특유의 말투(츤데레, 야옹체)로 아주 짧게(2~3문장) 말해주세요."
+        )
+        ai_reaction = await self.client.llm_client.generate_response(prompt, self.client.persona_prompt)
+        
+        # Show successful ephemeral response
+        embed = discord.Embed(
+            title="🧠 지식 가르치기 완료! (RAG 주입 성공) 🧠",
+            description=f"지식 주입 트랜잭션이 완벽하게 승인되었다냥!\n\n"
+                        f"• **지식 제공자**: {interaction.user.mention}\n"
+                        f"• **지불된 교육비**: `{self.price:,}원`\n"
+                        f"• **현재 보유 잔고**: `{new_money:,}원`\n\n"
+                        f"📁 지식은 `Knowledge_Injection.txt`에 저장되었으며, 뇌(RAG 인덱서)에 즉시 입력 완료되었다냥!",
+            color=0x2ECC71 # Green
+        )
+        embed.add_field(name="🐱 단또봇의 싸가지없는 츤데레 답변", value=ai_reaction, inline=False)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+        # Dispatch Debug Log to Admin Log Channel!
+        if self.client.log_channel_id:
+            try:
+                log_channel = self.client.get_channel(self.client.log_channel_id)
+                if not log_channel:
+                    log_channel = await self.client.fetch_channel(self.client.log_channel_id)
+                if log_channel:
+                    debug_embed = discord.Embed(
+                        title="🔧 RAG 지식 주입 디버그 로그",
+                        color=0x9B59B6, # Purple
+                        timestamp=discord.utils.utcnow()
+                    )
+                    debug_embed.add_field(name="👤 제공자", value=f"{interaction.user.mention} ({user_id})", inline=True)
+                    debug_embed.add_field(name="💰 지불된 교육비", value=f"`{self.price:,}원`", inline=True)
+                    debug_embed.add_field(name="📁 파일명", value="`Knowledge_Injection.txt`", inline=True)
+                    debug_embed.add_field(name="📝 주입된 지식 내용", value=f"```\n{knowledge_text}\n```", inline=False)
+                    await log_channel.send(embed=debug_embed)
+            except Exception as log_err:
+                logger.error(f"Failed to send RAG debug log: {log_err}")
 
