@@ -430,6 +430,30 @@ class DanddobotClient(discord.Client):
             remaining = int((block_info["until"] - now).total_seconds())
             if remaining > 0:
                 logger.info(f"[BLOCKED USER MESSAGE IGNORED] User: {message.author} ({user_id}) tried to chat but is currently blocked for another {remaining}s. Reason: {block_info['reason']}")
+                
+                # Also log to debug log channel in the background
+                if self.log_channel_id:
+                    async def send_block_debug():
+                        try:
+                            log_channel = self.get_channel(self.log_channel_id)
+                            if not log_channel:
+                                log_channel = await self.fetch_channel(self.log_channel_id)
+                            if log_channel:
+                                embed = discord.Embed(
+                                    title="🔇 차단 사용자 입력 차단 수신 (무반응 제동)",
+                                    color=0xE74C3C,  # Crimson Red
+                                    timestamp=discord.utils.utcnow()
+                                )
+                                embed.add_field(name="👤 사용자", value=f"{message.author.mention} ({user_id})", inline=True)
+                                embed.add_field(name="💬 채널", value=message.channel.mention if message.channel else "알 수 없음", inline=True)
+                                embed.add_field(name="⏳ 남은 기간", value=f"`{remaining}초`", inline=True)
+                                embed.add_field(name="🤬 차단 사유 (쌍욕)", value=f"```\n{block_info['reason']}\n```", inline=False)
+                                embed.add_field(name="📝 수신 메시지", value=f"```\n{message.content[:500]}\n```", inline=False)
+                                await log_channel.send(embed=embed)
+                        except Exception as log_err:
+                            logger.error(f"Failed to send block debug embed: {log_err}")
+                    
+                    asyncio.create_task(send_block_debug())
                 return
 
         # Acquire sequential processing lock (Option A)
