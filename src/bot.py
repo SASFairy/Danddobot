@@ -424,22 +424,12 @@ class DanddobotClient(discord.Client):
                 del self.user_blocks[user_id]
                 logger.info(f"Block expired for user {message.author} ({user_id})")
                 
-        # If user is currently blocked, notify them with a rate-limit in a natural sassy tone
+        # If user is currently blocked, ignore them completely with a debug log (silent on block)
         if user_id in self.user_blocks:
             block_info = self.user_blocks[user_id]
             remaining = int((block_info["until"] - now).total_seconds())
             if remaining > 0:
-                # Add a 5-second cooldown on the block notification itself to prevent spam
-                last_notify = block_info.get("last_notified", 0)
-                current_time = time.time()
-                if current_time - last_notify >= 5:
-                    block_info["last_notified"] = current_time
-                    await message.reply(
-                        f"🤫 **쉿! 차단당한 상태다냥!** ({remaining}초 남음)\n"
-                        f"넌 내가 저번에 한 말 벌써 잊어버렸냐냥?\n"
-                        f"> \"{block_info['reason']}\"\n"
-                        f"반성 시간 끝날 때까지 입 꾹 다물고 찌그러져 있으라냥! 🤐"
-                    )
+                logger.info(f"[BLOCKED USER MESSAGE IGNORED] User: {message.author} ({user_id}) tried to chat but is currently blocked for another {remaining}s. Reason: {block_info['reason']}")
                 return
 
         # Acquire sequential processing lock (Option A)
@@ -468,17 +458,17 @@ class DanddobotClient(discord.Client):
                         f"{rag_context}"
                     )
 
-            # Append AI block system instructions dynamically with milder criteria
+            # Append AI block system instructions dynamically with extreme cussing and rude blocking tone
             block_instructions = (
                 "\n\n[🚨 대화 거부 / 차단 권한 시스템]\n"
                 "당신(단또봇)은 상대방의 말이나 태도가 너무 저급하거나 비하 및 저질 욕설을 남발할 때, 혹은 의미 없는 이모티콘 도배나 무의미한 헛소리 및 앵무새 같은 반복적인 내용을 계속 무의미하게 연타해 입력할 때 스스로 대화를 일정 시간 거부(차단)할 권리가 있습니다.\n"
                 "다만, 너무 사소한 장난이나 조그만 시비에는 차단하지 말고 최대한 유연하고 유하게 대처하십시오. 칼차단은 지양해야 합니다. 정말 수준 이하의 무의미한 도배나 저급한 내용으로 더는 대화를 이어가기 불가능할 때만 진짜 차단하십시오.\n"
-                "차단을 내리기로 결정했다면, 답변 글의 맨 첫 줄에 반드시 다음 중 하나의 차단 태그를 삽입하고, 그 뒤에 '진짜 개인 SNS에서 비매너 유저를 즉각 차단해 버리는 듯한 츤데레 고양이 말투'로 직접 한마디 쏘아붙이는 차단 통보 답변을 작성하십시오.\n"
+                "차단을 내리기로 결정했다면, 답변 글의 맨 첫 줄에 반드시 다음 중 하나의 차단 태그를 삽입하고, 그 뒤에는 진짜 급정색하며 거친 쌍욕과 함께 즉각 차단을 선언하는 차가운 한마디 멘트를 쏘아붙이십시오.\n"
                 "• 형식: `[BLOCK_USER_1M]` (1분 차단)\n"
                 "• 형식: `[BLOCK_USER_5M]` (5분 차단)\n"
                 "• 형식: `[BLOCK_USER_10M]` (10분 차단)\n"
-                "예시: `[BLOCK_USER_5M] 아 진짜 뜻도 없는 이모티콘만 연타하면서 앵무새처럼 반복하는 거 존나 한심하다냥! 지겨우니까 5분 동안 나한테 아는 척도 하지 말아라냥! 흥!`\n"
-                "반드시 상황에 맞게 1M, 5M, 10M 중 하나를 골라 맨 첫 줄에 삽입하고, 뒷부분에는 자연스러운 반말/츤데레 대화 톤으로 상황에 맞춘 단냥이 코멘트를 적으십시오. 시스템적인 카드나 안내 형태는 일절 적지 마십시오."
+                "예시: `[BLOCK_USER_5M] 아 씨발. 적당히 하라냥. 좆같은 새끼야.`\n"
+                "반드시 상황에 맞게 1M, 5M, 10M 중 하나를 골라 맨 첫 줄에 삽입하고, 뒷부분에는 가식 없는 급정색 말투로 쌍욕 및 거친 차단 통보만 단호하고 단순하게 적으십시오."
             )
             system_prompt = f"{system_prompt}{block_instructions}"
 
