@@ -37,14 +37,29 @@ class SimpleKeywordRetriever(BaseRetriever):
             if not doc_tokens:
                 continue
             
-            # 1. 단어 중첩도 계산 (교집합)
-            intersection = query_tokens.intersection(set(doc_tokens))
-            score = len(intersection)
+            score = 0.0
+            matched_tokens = set()
             
-            # 2. 본문에 중첩된 키워드가 여러 번 등장할 경우 가중 점수 추가
-            for token in intersection:
-                score += doc_tokens.count(token) * 0.5
-                
+            # 1. 한국어 교착어(조사 결합)를 고려한 형태소 부분 일치 분석 ('동규에'와 '동규' 매칭)
+            for q_token in query_tokens:
+                for d_token in doc_tokens:
+                    # 완전 일치하는 경우 최고 우선 점수 부여
+                    if q_token == d_token:
+                        score += 2.0
+                        matched_tokens.add(q_token)
+                    # 조사/어미가 달라지는 부분 일치 처리 (최소 2글자 이상 겹칠 때만 매칭하여 조사 오동작 방지)
+                    elif q_token in d_token or d_token in q_token:
+                        overlap_len = min(len(q_token), len(d_token))
+                        if overlap_len >= 2:
+                            score += 1.0
+                            matched_tokens.add(q_token)
+            
+            # 2. 매칭된 키워드가 문서 내에 중복해서 등장할 경우 추가 빈도 가중치 부여
+            for q_token in matched_tokens:
+                for d_token in doc_tokens:
+                    if q_token == d_token or q_token in d_token or d_token in q_token:
+                        score += 0.5
+                        
             if score > 0:
                 scored_docs.append((score, doc["text"]))
 
