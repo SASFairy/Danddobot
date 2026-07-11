@@ -171,3 +171,35 @@ class BotSettingsController:
         from src.bot import load_registered_channels
         self.client.registered_channels = load_registered_channels(self.client.channels_file_path)
         logger.info(f"Channels reloaded: {self.client.registered_channels}")
+
+    async def toggle_rag(self) -> bool:
+        """Toggles the RAG engine and persists the state using StateManager."""
+        is_enabled = not self.client.rag_manager.is_enabled
+        self.client.rag_manager.is_enabled = is_enabled
+        await self.state_manager.set_value("rag_enabled", is_enabled)
+        logger.info(f"RAG engine toggled and persisted: {is_enabled}")
+        
+        # Trigger reloading of knowledge on enabling RAG
+        if is_enabled:
+            self.client.rag_manager.reload_knowledge()
+            
+        return is_enabled
+
+    async def update_rag_parameters(self, top_k: int, max_chars: int, chunk_size: int):
+        """Updates and persists RAG operational hyperparameters."""
+        # Safety clamp
+        if chunk_size > max_chars:
+            logger.warning(f"RAG_CHUNK_SIZE ({chunk_size}) is greater than RAG_MAX_CHARS ({max_chars}). Automatically capping chunk_size to {max_chars}.")
+            chunk_size = max_chars
+            
+        self.client.rag_manager.top_k = top_k
+        self.client.rag_manager.max_chars = max_chars
+        self.client.rag_manager.chunk_size = chunk_size
+        
+        await self.state_manager.set_value("rag_top_k", top_k)
+        await self.state_manager.set_value("rag_max_chars", max_chars)
+        await self.state_manager.set_value("rag_chunk_size", chunk_size)
+        
+        # Reload/re-index documents using the updated chunk size
+        self.client.rag_manager.reload_knowledge()
+        logger.info(f"RAG parameters updated, persisted, and knowledge re-indexed: Top-K={top_k}, MaxChars={max_chars}, ChunkSize={chunk_size}")

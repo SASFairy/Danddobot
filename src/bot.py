@@ -51,6 +51,11 @@ class DanddobotClient(discord.Client):
                  state_manager: StateManager, admin_channel_id: Optional[int] = None, 
                  log_channel_id: Optional[int] = None, provider_urls: Optional[Dict[str, str]] = None,
                  cerebras_api_key: Optional[str] = None,
+                 rag_enabled: bool = False,
+                 rag_knowledge_dir: str = "config/knowledge",
+                 rag_top_k: int = 3,
+                 rag_max_chars: int = 1500,
+                 rag_chunk_size: int = 500,
                  *args, **kwargs):
         # We require message_content intents to read user messages
         intents = discord.Intents.default()
@@ -120,6 +125,16 @@ class DanddobotClient(discord.Client):
         from src.game_commands import setup_game_commands
         setup_game_commands(self)
 
+        # Initialize RAG (Retrieval-Augmented Generation) Manager
+        from src.rag.manager import RAGManager
+        self.rag_manager = RAGManager(
+            is_enabled=rag_enabled,
+            knowledge_dir=rag_knowledge_dir,
+            top_k=rag_top_k,
+            max_chars=rag_max_chars,
+            chunk_size=rag_chunk_size
+        )
+
         logger.info(
             f"DanddobotClient initialized. Active channel: {self.active_channel_id}, "
             f"Registered channels: {list(self.registered_channels.keys())}, "
@@ -127,7 +142,8 @@ class DanddobotClient(discord.Client):
             f"Log channel: {self.log_channel_id}, "
             f"Memory Enabled: {self.use_memory} (Max capacity: {self.max_memory_length}), "
             f"Debug Mode Enabled: {self.debug_mode}, "
-            f"Distinguish Users Enabled: {self.distinguish_users}"
+            f"Distinguish Users Enabled: {self.distinguish_users}, "
+            f"RAG Enabled: {self.rag_manager.is_enabled} (Directory: {rag_knowledge_dir}, Top-K: {rag_top_k}, MaxChars: {rag_max_chars}, ChunkSize: {self.rag_manager.chunk_size})"
         )
 
     async def on_ready(self):
@@ -402,6 +418,18 @@ class DanddobotClient(discord.Client):
 
             # Use cached system prompt (hot-reloaded dynamically from memory)
             system_prompt = self.persona_prompt
+            rag_context = ""
+
+            # Retrieve RAG context if enabled
+            if self.rag_manager.is_enabled:
+                rag_context = self.rag_manager.retrieve_context(user_content)
+                if rag_context:
+                    system_prompt = (
+                        f"{self.persona_prompt}\n\n"
+                        f"[필독 참고 정보]\n"
+                        f"이용자의 질문에 답변할 때 다음의 참고 가이드를 사실에 기초해 영리하게 이용해 답변하십시오:\n"
+                        f"{rag_context}"
+                    )
 
             # Load history context if memory is enabled
             history = None
@@ -430,7 +458,8 @@ class DanddobotClient(discord.Client):
                             response=None,
                             latency=latency,
                             is_error=True,
-                            error_message=str(llm_error)
+                            error_message=str(llm_error),
+                            rag_context=rag_context
                         )
                     )
                 else:
@@ -440,7 +469,8 @@ class DanddobotClient(discord.Client):
                             prompt=user_content_for_llm,
                             response=response,
                             latency=latency,
-                            is_error=False
+                            is_error=False,
+                            rag_context=rag_context
                         )
                     )
 
@@ -478,7 +508,7 @@ class DanddobotClient(discord.Client):
                         logger.error(f"Failed to send message chunk {idx}: {e}")
 
 
-    async def send_debug_log(self, message: discord.Message, prompt: str, response: Optional[str], latency: float, is_error: bool = False, error_message: Optional[str] = None):
+    async def send_debug_log(self, message: discord.Message, prompt: str, response: Optional[str], latency: float, is_error: bool = False, error_message: Optional[str] = None, rag_context: Optional[str] = None):
         """
         Builds and sends a premium Discord Embed log to the configured log channel.
         This must be safe, sliced, non-blocking, and handled gracefully.
@@ -560,8 +590,20 @@ class DanddobotClient(discord.Client):
             )
             embed.add_field(name="⚙️ 생성 하이퍼파라미터 (Generation Parameters)", value=hyperparams_summary, inline=False)
 
-            # Prompt & Response fields
+            # Prompt, RAG Context, and Response fields
             embed.add_field(name="📝 프롬프트 (Raw Prompt)", value=f"```\n{safe_prompt}\n```", inline=False)
+            
+            # Add RAG Context field if enabled
+            if self.rag_manager.is_enabled:
+                if rag_context:
+                    if len(rag_context) > 1000:
+                        safe_rag = rag_context[:1000] + "\n\n⚠️ 참고 지식이 너무 길어 일부가 잘렸습니다."
+                    else:
+                        safe_rag = rag_context
+                else:
+                    safe_rag = "(이용자 질문에 부합하는 연관 지식이 검색되지 않았습니다.)"
+                embed.add_field(name="🧠 RAG 참고 지식 (Retrieved Context)", value=f"```\n{safe_rag}\n```", inline=False)
+
             embed.add_field(name="📤 생성된 답변 (Response)", value=f"```\n{safe_response}\n```", inline=False)
 
             if files:

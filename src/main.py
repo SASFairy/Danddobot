@@ -61,7 +61,12 @@ def main():
         log_channel_id=config.log_channel_id,
         state_manager=state_manager,
         provider_urls=config.provider_urls,
-        cerebras_api_key=config.cerebras_api_key
+        cerebras_api_key=config.cerebras_api_key,
+        rag_enabled=config.rag_enabled,
+        rag_knowledge_dir=config.rag_knowledge_dir,
+        rag_top_k=config.rag_top_k,
+        rag_max_chars=config.rag_max_chars,
+        rag_chunk_size=config.rag_chunk_size
     )
 
     # 7. Run the Bot
