@@ -294,60 +294,60 @@ class DanddobotClient(discord.Client):
                 logger.error(f"Failed to send reply to active channel: {reply_err}")
 
     async def on_interaction(self, interaction: discord.Interaction):
-        # Check if the interaction is a slash command / application command
-        if interaction.type == discord.InteractionType.application_command:
-            if getattr(self, "debug_mode", False):
-                command_name = interaction.command.name if interaction.command else "알 수 없는 명령어"
-                user_name = interaction.user.display_name
-                user_id = interaction.user.id
-                channel_name = interaction.channel.name if interaction.channel else "개인 DM"
-                
-                # Recursively parse arguments
-                args_list = []
-                options = interaction.data.get("options", [])
-                
-                def extract_opts(opts):
-                    for opt in opts:
-                        if "value" in opt:
-                            args_list.append(f"{opt['name']}: {opt['value']}")
-                        elif "options" in opt:
-                            extract_opts(opt["options"])
-                            
-                if options:
-                    extract_opts(options)
-                args_str = ", ".join(args_list) if args_list else "매개변수 없음"
-                
-                # 1. Output beautiful debug log to system console/stdout
-                logger.info(
-                    f"\n⚙️ [DEBUG MODE - SLASH COMMAND TRIGGERED]\n"
-                    f"• 명령어 (Command): /{command_name}\n"
-                    f"• 실행자 (User): {user_name} ({user_id})\n"
-                    f"• 채널 (Channel): {channel_name} (ID: {interaction.channel_id})\n"
-                    f"• 매개변수 (Arguments): {args_str}\n"
-                )
-                
-                # 2. Output detailed embed debug log to dedicated log channel if configured
-                if self.log_channel_id:
-                    try:
-                        log_channel = self.get_channel(self.log_channel_id)
-                        if not log_channel:
-                            log_channel = await self.fetch_channel(self.log_channel_id)
-                        if log_channel:
-                            embed = discord.Embed(
-                                title="🔧 디버그 로그 (슬래시 명령어 호출)",
-                                color=0x9B59B6,  # Purple for commands
-                                timestamp=discord.utils.utcnow()
-                            )
-                            embed.add_field(name="👤 실행자", value=f"{interaction.user.mention} ({user_id})", inline=True)
-                            embed.add_field(name="💬 채널", value=f"{interaction.channel.mention if interaction.channel else 'DM'}", inline=True)
-                            embed.add_field(name="⚙️ 명령어", value=f"`/{command_name}`", inline=True)
-                            embed.add_field(name="📝 인수 (Arguments)", value=f"```\n{args_str}\n```", inline=False)
-                            await log_channel.send(embed=embed)
-                    except Exception as e:
-                        logger.error(f"Failed to dispatch command debug log to log channel: {e}")
-
-        # Continue with standard interaction processing
-        await super().on_interaction(interaction)
+        try:
+            # Check if the interaction is a slash command / application command
+            if interaction.type == discord.InteractionType.application_command:
+                if getattr(self, "debug_mode", False):
+                    command_name = interaction.command.name if interaction.command else "알 수 없는 명령어"
+                    user_name = interaction.user.display_name
+                    user_id = interaction.user.id
+                    channel_name = interaction.channel.name if interaction.channel else "개인 DM"
+                    
+                    # Recursively parse arguments
+                    args_list = []
+                    options = interaction.data.get("options", [])
+                    
+                    def extract_opts(opts):
+                        for opt in opts:
+                            if "value" in opt:
+                                args_list.append(f"{opt['name']}: {opt['value']}")
+                            elif "options" in opt:
+                                extract_opts(opt["options"])
+                                
+                    if options:
+                        extract_opts(options)
+                    args_str = ", ".join(args_list) if args_list else "매개변수 없음"
+                    
+                    # 1. Output beautiful debug log to system console/stdout
+                    logger.info(
+                        f"\n⚙️ [DEBUG MODE - SLASH COMMAND TRIGGERED]\n"
+                        f"• 명령어 (Command): /{command_name}\n"
+                        f"• 실행자 (User): {user_name} ({user_id})\n"
+                        f"• 채널 (Channel): {channel_name} (ID: {interaction.channel_id})\n"
+                        f"• 매개변수 (Arguments): {args_str}\n"
+                    )
+                    
+                    # 2. Output detailed embed debug log to dedicated log channel if configured
+                    if self.log_channel_id:
+                        try:
+                            log_channel = self.get_channel(self.log_channel_id)
+                            if not log_channel:
+                                log_channel = await self.fetch_channel(self.log_channel_id)
+                            if log_channel:
+                                embed = discord.Embed(
+                                    title="🔧 디버그 로그 (슬래시 명령어 호출)",
+                                    color=0x9B59B6,  # Purple for commands
+                                    timestamp=discord.utils.utcnow()
+                                )
+                                embed.add_field(name="👤 실행자", value=f"{interaction.user.mention} ({user_id})", inline=True)
+                                embed.add_field(name="💬 채널", value=f"{interaction.channel.mention if interaction.channel else 'DM'}", inline=True)
+                                embed.add_field(name="⚙️ 명령어", value=f"`/{command_name}`", inline=True)
+                                embed.add_field(name="📝 인수 (Arguments)", value=f"```\n{args_str}\n```", inline=False)
+                                await log_channel.send(embed=embed)
+                        except Exception as e:
+                            logger.error(f"Failed to dispatch command debug log to log channel: {e}")
+        except Exception as e:
+            logger.error(f"Error in on_interaction debug handler: {e}")
 
     async def on_message(self, message: discord.Message):
         # 0. Fast instant command synchronizer for testing / guild level
