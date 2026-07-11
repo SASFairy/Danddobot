@@ -60,7 +60,7 @@ class AdminChannelSelect(ui.Select):
         alias = registered.get(selected_channel_id, f"채널 {selected_channel_id}")
 
         try:
-            await client.update_active_channel(selected_channel_id)
+            await client.settings.update_active_channel(selected_channel_id)
 
             # Rebuild dashboard with updated view so dropdown default is refreshed
             # Use local import to break circular dependency
@@ -139,7 +139,7 @@ class AdminProviderSelect(ui.Select):
             # We defer since updating LLM client (closing pool and re-opening) might take a second or two
             await interaction.response.defer(ephemeral=True)
 
-            await client.update_llm_provider(selected_provider)
+            await client.settings.update_llm_provider(selected_provider)
 
             # Rebuild dashboard with updated view so dropdown default and model choices are refreshed
             # Use local import to break circular dependency
@@ -199,7 +199,7 @@ class AdminModelSelect(ui.Select):
         selected_model = self.values[0]
 
         try:
-            await client.update_llm_model(selected_model)
+            await client.settings.update_llm_model(selected_model)
 
             # Rebuild dashboard with updated view so dropdown default is refreshed
             # Use local import to break circular dependency

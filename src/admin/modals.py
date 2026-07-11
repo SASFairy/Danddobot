@@ -47,7 +47,7 @@ class PersonaEditModal(ui.Modal, title="🤖 페르소나(시스템 프롬프트
             logger.info(f"Persona updated via Modal by user {interaction.user} (ID: {interaction.user.id})")
             
             # Update the cached prompt dynamically
-            await self.client.update_persona_prompt(new_content)
+            await self.client.settings.update_persona_prompt(new_content)
             
             # Update the dashboard message
             embed = build_dashboard_embed(self.client, status_msg="페르소나 수정 및 재로드 완료")
@@ -94,7 +94,7 @@ class LlmTimeoutEditModal(ui.Modal, title="⏱️ LLM 타임아웃 시간 설정
             return
 
         # Invoke encapsulated client API to update and persist
-        await client.set_llm_timeout(new_timeout)
+        await client.settings.set_llm_timeout(new_timeout)
 
         # Update the dashboard message
         timeout_str = "무제한" if new_timeout is None else f"{new_timeout}초"
@@ -137,7 +137,7 @@ class MemoryLimitEditModal(ui.Modal, title="🔢 대화 기억 용량 설정"):
             return
 
         # Invoke encapsulated client API to update and persist
-        await client.set_max_memory_length(new_val)
+        await client.settings.set_max_memory_length(new_val)
 
         # Rebuild dashboard view & edit message
         # Use local import to break circular dependency
@@ -351,7 +351,7 @@ class LlmParametersEditModal(ui.Modal, title="⚙️ LLM 생성 옵션(하이퍼
                 return
                 
         # Update and persist parameters
-        await client.update_llm_parameters(
+        await client.settings.update_llm_parameters(
             temperature=temp_val,
             max_tokens=max_tokens_val,
             repeat_penalty=rep_penalty_val,
