@@ -362,6 +362,18 @@ class DanddobotClient(discord.Client):
                     await message.channel.send(f"❌ 동기화 실패: `{e}`")
                 return
 
+        # 0.5 Clean up guild-specific command duplicates to leave only global ones
+        if message.content == "!cleanup":
+            if message.guild and message.author.guild_permissions.administrator:
+                await message.channel.send("🧹 이 서버의 로컬(Guild) 슬래시 명령어를 모두 삭제하여 중복을 제거합니다옹...")
+                try:
+                    self.tree.clear_commands(guild=message.guild)
+                    await self.tree.sync(guild=message.guild)
+                    await message.channel.send("✅ 로컬 명령어 삭제 성공! 이제 이 서버에는 글로벌 명령어(1개씩)만 깔끔하게 노출됩니다옹!")
+                except Exception as e:
+                    await message.channel.send(f"❌ 정돈 실패: `{e}`")
+                return
+
         # Verify if we should handle this message
         if not self.should_respond(message):
             return
