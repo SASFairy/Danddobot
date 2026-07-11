@@ -52,4 +52,5 @@ README.local.md
 # Databases
 *.db
 game_database.db
+config/item_database.json
 
