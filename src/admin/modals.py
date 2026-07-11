@@ -543,3 +543,148 @@ class RagParametersEditModal(ui.Modal, title="📖 RAG 지능형 지식 엔진 �
             (f", 최대 글자수 한도에 맞춰 자동 캡핑됨)" if applied_chunk_size != chunk_size else ")"),
             ephemeral=True
         )
+
+
+class RagFileCreateModal(ui.Modal, title="➕ 신규 지식 직접 작성"):
+    """
+    Discord Modal to directly write and create a new RAG .txt knowledge document.
+    """
+    def __init__(self, client: discord.Client):
+        super().__init__()
+        self.client = client
+        
+        self.filename_input = ui.TextInput(
+            label="파일명 입력 (반드시 .txt로 끝나야 함)",
+            placeholder="예: server_rules.txt",
+            required=True,
+            max_length=50
+        )
+        self.content_input = ui.TextInput(
+            label="지식 본문 입력 (최대 4000자)",
+            style=discord.TextStyle.paragraph,
+            placeholder="챗봇에게 참고시킬 지식을 정갈하게 적어 주세요...",
+            required=True,
+            max_length=4000
+        )
+        self.add_item(self.filename_input)
+        self.add_item(self.content_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        import re
+        client = self.client
+        filename = self.filename_input.value.strip()
+        content = self.content_input.value
+        
+        # 1. Filename validation
+        if not filename.endswith(".txt"):
+            filename += ".txt"
+            
+        # Alphanumeric, underscores, hyphens, and dots only for security (Directory traversal guard)
+        if not re.match(r"^[a-zA-Z0-9_\-\.]+$", filename):
+            await interaction.response.send_message("❌ 파일명에는 영문, 숫자, 밑줄(_), 하이픈(-), 마침표(.)만 포함할 수 있습니다.", ephemeral=True)
+            return
+
+        knowledge_dir = getattr(client.rag_manager, "knowledge_dir", "config/knowledge")
+        file_path = os.path.join(knowledge_dir, filename)
+        
+        try:
+            # 2. Check if file already exists
+            if os.path.exists(file_path):
+                await interaction.response.send_message(f"⚠️ `{filename}` 파일이 이미 존재합니다. 덮어쓰려면 파일 선택 드롭다운에서 해당 파일을 고르고 수정 버튼을 이용해 주세요.", ephemeral=True)
+                return
+                
+            os.makedirs(knowledge_dir, exist_ok=True)
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(content)
+                
+            # 3. Reload knowledge base in memory
+            doc_cnt, chunk_cnt = client.rag_manager.reload_knowledge()
+            
+            # Rebuild dashboard view & edit message
+            from .views import AdminDashboardView
+            embed = build_dashboard_embed(client, status_msg=f"신규 지식 추가 완료: {filename}")
+            new_view = AdminDashboardView(client)
+            new_view.current_category = "rag"  # Keep active tab
+            new_view.selected_rag_file = filename  # Pre-select the newly created file
+            new_view.refresh_components()
+            await interaction.message.edit(embed=embed, view=new_view)
+            
+            await interaction.response.send_message(
+                f"✅ **새로운 RAG 지식 문서가 작성되었습니다!**\n"
+                f"• 파일명: `{filename}`\n"
+                f"• 글자 수: `{len(content)}자`\n\n"
+                f"전체 지식 리로드도 자동 완료되었습니다. 📚",
+                ephemeral=True
+            )
+            logger.info(f"New RAG knowledge file '{filename}' created via Modal by {interaction.user}")
+        except Exception as e:
+            logger.error(f"Failed to create new RAG knowledge file: {e}")
+            await interaction.response.send_message(f"❌ 신규 지식 생성 중 치명적 오류가 발생했습니다: `{e}`", ephemeral=True)
+
+
+class RagFileEditModal(ui.Modal):
+    """
+    Discord Modal to directly edit the text of an existing RAG .txt knowledge document.
+    Prefills current contents.
+    """
+    def __init__(self, client: discord.Client, filename: str):
+        super().__init__(title=f"✏️ 지식 수정: {filename[:20]}")
+        self.client = client
+        self.filename = filename
+        
+        knowledge_dir = getattr(client.rag_manager, "knowledge_dir", "config/knowledge")
+        file_path = os.path.join(knowledge_dir, filename)
+        
+        # Load current content
+        current_content = ""
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    current_content = f.read()
+            except Exception as e:
+                logger.error(f"Failed to read file for prefilling EditModal: {e}")
+                
+        self.content_input = ui.TextInput(
+            label="지식 본문 수정",
+            style=discord.TextStyle.paragraph,
+            placeholder="수정할 내용을 기입하세요...",
+            default=current_content,
+            required=True,
+            max_length=4000
+        )
+        self.add_item(self.content_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        client = self.client
+        content = self.content_input.value
+        
+        knowledge_dir = getattr(client.rag_manager, "knowledge_dir", "config/knowledge")
+        file_path = os.path.join(knowledge_dir, self.filename)
+        
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(content)
+                
+            # Reload knowledge base in memory
+            doc_cnt, chunk_cnt = client.rag_manager.reload_knowledge()
+            
+            # Rebuild dashboard view & edit message
+            from .views import AdminDashboardView
+            embed = build_dashboard_embed(client, status_msg=f"지식 내용 수정 완료: {self.filename}")
+            new_view = AdminDashboardView(client)
+            new_view.current_category = "rag"
+            new_view.selected_rag_file = self.filename
+            new_view.refresh_components()
+            await interaction.message.edit(embed=embed, view=new_view)
+            
+            await interaction.response.send_message(
+                f"✅ **RAG 지식 문서 수정이 정상 완료되었습니다!**\n"
+                f"• 파일명: `{self.filename}`\n"
+                f"• 새로운 글자 수: `{len(content)}자`\n\n"
+                f"전체 지식 리로드도 자동 완료되었습니다. 📚",
+                ephemeral=True
+            )
+            logger.info(f"RAG knowledge file '{self.filename}' modified via Modal by {interaction.user}")
+        except Exception as e:
+            logger.error(f"Failed to edit RAG knowledge file: {e}")
+            await interaction.response.send_message(f"❌ 지식 수정 중 오류가 발생했습니다: `{e}`", ephemeral=True)

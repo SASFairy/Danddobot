@@ -283,3 +283,64 @@ class AdminCategorySelect(ui.Select):
         
         embed = build_dashboard_embed(interaction.client, status_msg=f"메뉴 탭 변경: {status_name}")
         await interaction.response.edit_message(embed=embed, view=view)
+
+
+class AdminRagFileSelect(ui.Select):
+    """
+    Dropdown listing all available knowledge files in config/knowledge/.
+    Selecting a file saves its name in the view state for subsequent edit/delete actions.
+    """
+    def __init__(self, client: discord.Client, selected_file: str = None, row: int = 2):
+        import os
+        knowledge_dir = "config/knowledge"
+        if hasattr(client, "rag_manager") and client.rag_manager:
+            knowledge_dir = getattr(client.rag_manager, "knowledge_dir", "config/knowledge")
+            
+        files = []
+        if os.path.exists(knowledge_dir):
+            try:
+                files = [f for f in os.listdir(knowledge_dir) if f.endswith(".txt")]
+            except Exception as e:
+                logger.error(f"Failed to list knowledge files in selects: {e}")
+                
+        options = []
+        for filename in sorted(files)[:24]:  # Discord selects allow up to 25 choices
+            options.append(discord.SelectOption(
+                label=filename[:100],
+                value=filename,
+                description=f"지식 파일: {filename}",
+                emoji="📄",
+                default=(filename == selected_file)
+            ))
+            
+        if not options:
+            options.append(discord.SelectOption(
+                label="📁 등록된 지식 파일 없음",
+                value="none",
+                description="지식 추가 단추를 눌러 첫 파일을 등록해 보세요."
+            ))
+            
+        super().__init__(
+            placeholder="📁 관리할 RAG 지식 파일을 선택해 주세요...",
+            options=options,
+            min_values=1,
+            max_values=1,
+            custom_id="danddobot_admin_rag_file_select",
+            row=row
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        if self.values[0] == "none":
+            await interaction.response.send_message("💡 `[➕ 신규 지식 직접 작성]` 또는 `[📤 대형 파일 업로드]` 버튼을 눌러 첫 지식을 등록해 보세요!", ephemeral=True)
+            return
+            
+        selected_file = self.values[0]
+        view = self.view
+        view.selected_rag_file = selected_file
+        
+        # Re-render view to display the selected file control buttons
+        view.refresh_components()
+        
+        from .embeds import build_dashboard_embed
+        embed = build_dashboard_embed(interaction.client, status_msg=f"선택한 지식 파일: {selected_file}")
+        await interaction.response.edit_message(embed=embed, view=view)
