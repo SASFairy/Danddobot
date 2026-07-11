@@ -622,6 +622,62 @@ class AdminDashboardView(ui.View):
             await interaction.followup.send(f"❌ 파일 저장 중 내부 서버 오류가 발생했습니다: `{e}`", ephemeral=True)
 
 
+class GameDbEditModal(ui.Modal, title="✏️ 미니게임 DB JSON 직접 수정"):
+    def __init__(self, client: discord.Client):
+        super().__init__()
+        self.client = client
+        
+        db = getattr(client, "db", None)
+        current_json = "{}"
+        if db and os.path.exists(db.db_path):
+            try:
+                with open(db.db_path, "r", encoding="utf-8") as f:
+                    current_json = f.read()
+            except Exception:
+                pass
+                
+        self.json_input = ui.TextInput(
+            label="JSON 데이터 수정 (주의해서 변경해 주세요!)",
+            style=discord.TextStyle.paragraph,
+            default=current_json,
+            required=True,
+            max_length=4000
+        )
+        self.add_item(self.json_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            import json
+            new_data = json.loads(self.json_input.value)
+            if not isinstance(new_data, dict) or "users" not in new_data:
+                await interaction.followup.send("❌ **올바른 형식의 미니게임 DB JSON 구조가 아닙니다.** 최상위 레벨에 `\"users\"` 키가 포함되어야 합니다옹!", ephemeral=True)
+                return
+                
+            db = getattr(self.client, "db", None)
+            if db:
+                async with db.get_lock():
+                    db.data = new_data
+                    await db._save_data()
+                    
+                from .embeds import build_game_admin_embed
+                embed = await build_game_admin_embed(self.client)
+                await interaction.message.edit(embed=embed, view=interaction.message.components[0].view if interaction.message.components else None)
+                
+                await interaction.followup.send(
+                    f"✅ **미니게임 JSON 데이터베이스 직접 수정 성공!**\n"
+                    f"• 등록된 총 사용자 수: `{len(new_data['users'])}명`\n"
+                    f"• 변경된 데이터가 대시보드 및 서버 저장소에 즉시 적용되었습니다옹!",
+                    ephemeral=True
+                )
+                logger.warning(f"Database manually edited via Discord modal by {interaction.user}")
+        except json.JSONDecodeError as je:
+            await interaction.followup.send(f"❌ **JSON 파일 문법 오류:** 입력하신 내용에 문법적 문제가 있습니다. 문장 부호(쉼표, 중괄호 등)를 다시 확인해 주세요!\n`오류: {je}`", ephemeral=True)
+        except Exception as e:
+            logger.error(f"Failed to process direct modal edit: {e}")
+            await interaction.followup.send(f"❌ 데이터베이스 수정 적용 중 오류가 발생했습니다: `{e}`", ephemeral=True)
+
+
 class GameAdminDashboardView(ui.View):
     """
     Interactive button view attached to the mini-game admin dashboard embed.
@@ -630,35 +686,24 @@ class GameAdminDashboardView(ui.View):
         super().__init__(timeout=None)  # Persistent across bot reboots
         self.client = client
 
-    @ui.button(label="🔍 유저 조회", style=discord.ButtonStyle.primary, custom_id="danddobot_game_admin_query", row=0)
-    async def query_user_btn(self, interaction: discord.Interaction, button: ui.Button):
-        logger.info(f"Admin query user modal requested by {interaction.user}")
-        from .modals import GameUserQueryModal
-        modal = GameUserQueryModal(self.client)
+    @ui.button(label="✏️ DB 직접 수정", style=discord.ButtonStyle.primary, custom_id="danddobot_game_admin_db_edit", row=0)
+    async def edit_db_btn(self, interaction: discord.Interaction, button: ui.Button):
+        logger.info(f"Admin JSON database direct edit requested by {interaction.user}")
+        db = getattr(self.client, "db", None)
+        if db and os.path.exists(db.db_path):
+            file_len = os.path.getsize(db.db_path)
+            if file_len > 3800:
+                await interaction.response.send_message(
+                    "⚠️ **DB 파일 용량이 너무 커서(4000자 초과) 모달에서 직접 수정할 수 없다냥!**\n"
+                    "대신 옆에 있는 **`📤 DB 다운로드`**와 **`📥 DB 업로드`** 버튼을 이용해 안전하고 편리하게 편집해 주세요옹!",
+                    ephemeral=True
+                )
+                return
+        
+        modal = GameDbEditModal(self.client)
         await interaction.response.send_modal(modal)
 
-    @ui.button(label="💵 자산 수정", style=discord.ButtonStyle.success, custom_id="danddobot_game_admin_balance", row=0)
-    async def adjust_balance_btn(self, interaction: discord.Interaction, button: ui.Button):
-        logger.info(f"Admin balance adjust modal requested by {interaction.user}")
-        from .modals import GameBalanceAdjustModal
-        modal = GameBalanceAdjustModal(self.client)
-        await interaction.response.send_modal(modal)
-
-    @ui.button(label="📅 출석 수정", style=discord.ButtonStyle.primary, custom_id="danddobot_game_admin_streak", row=0)
-    async def adjust_streak_btn(self, interaction: discord.Interaction, button: ui.Button):
-        logger.info(f"Admin streak adjust modal requested by {interaction.user}")
-        from .modals import GameStreakAdjustModal
-        modal = GameStreakAdjustModal(self.client)
-        await interaction.response.send_modal(modal)
-
-    @ui.button(label="🎒 가방 관리", style=discord.ButtonStyle.success, custom_id="danddobot_game_admin_items", row=1)
-    async def manage_items_btn(self, interaction: discord.Interaction, button: ui.Button):
-        logger.info(f"Admin item manage modal requested by {interaction.user}")
-        from .modals import GameItemManageModal
-        modal = GameItemManageModal(self.client)
-        await interaction.response.send_modal(modal)
-
-    @ui.button(label="📤 DB 다운로드", style=discord.ButtonStyle.secondary, custom_id="danddobot_game_admin_db_download", row=1)
+    @ui.button(label="📤 DB 다운로드", style=discord.ButtonStyle.secondary, custom_id="danddobot_game_admin_db_download", row=0)
     async def download_db_btn(self, interaction: discord.Interaction, button: ui.Button):
         logger.info(f"Admin JSON database download requested by {interaction.user}")
         db = getattr(self.client, "db", None)
@@ -675,7 +720,7 @@ class GameAdminDashboardView(ui.View):
             ephemeral=True
         )
 
-    @ui.button(label="📥 DB 업로드", style=discord.ButtonStyle.danger, custom_id="danddobot_game_admin_db_upload", row=1)
+    @ui.button(label="📥 DB 업로드", style=discord.ButtonStyle.danger, custom_id="danddobot_game_admin_db_upload", row=0)
     async def upload_db_btn(self, interaction: discord.Interaction, button: ui.Button):
         logger.info(f"Admin JSON database upload flow requested by {interaction.user}")
         await interaction.response.defer(ephemeral=True)
@@ -746,7 +791,7 @@ class GameAdminDashboardView(ui.View):
             logger.error(f"Failed to process uploaded DB file: {e}")
             await interaction.followup.send(f"❌ 데이터베이스 복원 중 치명적인 오류가 발생했습니다: `{e}`", ephemeral=True)
 
-    @ui.button(label="🔄 패널 새로고침", style=discord.ButtonStyle.secondary, custom_id="danddobot_game_admin_refresh", row=1)
+    @ui.button(label="🔄 패널 새로고침", style=discord.ButtonStyle.secondary, custom_id="danddobot_game_admin_refresh", row=0)
     async def refresh_panel_btn(self, interaction: discord.Interaction, button: ui.Button):
         logger.info(f"Admin game panel refresh requested by {interaction.user}")
         await interaction.response.defer(ephemeral=True)

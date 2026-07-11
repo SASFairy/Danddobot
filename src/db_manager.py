@@ -29,12 +29,23 @@ class DatabaseManager:
     def _init_db(self):
         """Initializes database, handles automatic migration from SQLite to JSON if needed."""
         try:
-            # 1. Automatic database migration if old SQLite file exists
+            # 1. Determine if we need to migrate from SQLite
             old_db_path = "config/game_database.db"
-            if os.path.exists(old_db_path):
-                logger.info(f"Old SQLite database found at {old_db_path}. Starting automatic migration to JSON format...")
+            backup_db_path = "config/game_database.db.bak"
+            sqlite_to_migrate = None
+            
+            # We migrate if JSON doesn't exist or is empty
+            json_exists = os.path.exists(self.db_path) and os.path.getsize(self.db_path) > 0
+            if not json_exists:
+                if os.path.exists(old_db_path):
+                    sqlite_to_migrate = old_db_path
+                elif os.path.exists(backup_db_path):
+                    sqlite_to_migrate = backup_db_path
+            
+            if sqlite_to_migrate:
+                logger.info(f"SQLite database found at {sqlite_to_migrate}. Automatic migration to JSON starting...")
                 try:
-                    conn = sqlite3.connect(old_db_path)
+                    conn = sqlite3.connect(sqlite_to_migrate)
                     cursor = conn.cursor()
                     
                     # Verify if users table exists
@@ -60,17 +71,22 @@ class DatabaseManager:
                         
                         self.data = {"users": migrated_users}
                         self._save_data_sync()
-                        logger.info(f"Successfully migrated {len(migrated_users)} users from SQLite to JSON database.")
-                    
-                    conn.close()
-                    # Safe backup rename of the SQLite database
-                    shutil.move(old_db_path, old_db_path + ".bak")
-                    logger.info(f"Old SQLite database has been backed up and renamed to {old_db_path}.bak")
+                        logger.info(f"Successfully migrated {len(migrated_users)} users from SQLite ({sqlite_to_migrate}) to JSON database.")
+                        
+                        conn.close()
+                        # Safe backup rename only if migrating the active db file
+                        if sqlite_to_migrate == old_db_path:
+                            shutil.move(old_db_path, backup_db_path)
+                            logger.info(f"Old SQLite database has been backed up and renamed to {backup_db_path}")
+                        return  # Exit early since we just performed a successful migration and saved!
+                    else:
+                        logger.warning(f"SQLite database at {sqlite_to_migrate} does not contain 'users' table. Skipping migration.")
+                        conn.close()
                 except Exception as migration_err:
                     logger.error(f"Error during SQLite to JSON database migration: {migration_err}")
             
             # 2. Load JSON database if exists, otherwise initialize empty
-            if os.path.exists(self.db_path):
+            if os.path.exists(self.db_path) and os.path.getsize(self.db_path) > 0:
                 try:
                     with open(self.db_path, "r", encoding="utf-8") as f:
                         loaded_data = json.load(f)
@@ -82,9 +98,9 @@ class DatabaseManager:
                             self.data = {"users": {}}
                             self._save_data_sync()
                 except json.JSONDecodeError as je:
-                    logger.error(f"JSON Decode Error in {self.db_path}: {je}. The file might be corrupted or manually edited incorrectly.")
-                    # Fallback to empty dict in-memory to prevent startup crash, but don't overwrite user's file unless a save is made.
+                    logger.error(f"JSON Decode Error in {self.db_path}: {je}. The file might be corrupted. Resetting with safe defaults.")
                     self.data = {"users": {}}
+                    self._save_data_sync()
             else:
                 self.data = {"users": {}}
                 self._save_data_sync()
