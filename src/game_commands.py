@@ -791,7 +791,7 @@ def setup_game_commands(client: discord.Client):
             except Exception:
                 pass
 
-    @client.tree.command(name="상점", description="단또봇 프리미엄 미니게임 상점을 열어 아이템을 구매합니다. (나만 보기, WIP)")
+    @client.tree.command(name="상점", description="단또봇 프리미엄 상점을 열어 아이템을 구매합니다. (나만 보기, WIP)")
     async def view_shop(interaction: discord.Interaction):
         client_obj = interaction.client
         db = getattr(client_obj, "db", None)
@@ -814,9 +814,9 @@ def setup_game_commands(client: discord.Client):
 
         embed = discord.Embed(
             title="🛒 단또봇 프리미엄 미니게임 상점 (WIP) 🛒",
-            description="단또가 모아온 진귀한(?) 아이템들을 골드로 구매할 수 있는 상점이다냥!\n"
+            description="어디서 구르다 온 귀중한 아이템들을 골드로 구매할 수 있는 상점이다냥!\n"
                         "아래의 셀렉트 박스에서 원하는 물건을 골라 즉시 구매해 보라냥.\n\n"
-                        "⚠️ **[안내]:** 현재 해당 기능은 개발 중(WIP) 단계이며 테스트 아이템 위주로 우선 구비되어 있습니다옹!",
+                        "⚠️ **[안내]:** 현재 해당 기능은 개발 중(WIP) 단계이며 테스트 아이템 위주로 우선 구비되어 있습니다.",
             color=0xE67E22
         )
         embed.set_thumbnail(url=interaction.user.display_avatar.url if interaction.user.display_avatar else None)
