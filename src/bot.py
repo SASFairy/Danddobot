@@ -138,6 +138,13 @@ class DanddobotClient(discord.Client):
         logger.info(f"Debug logging mode toggled and persisted: {self.debug_mode}")
         return self.debug_mode
 
+    async def toggle_distinguish_users(self) -> bool:
+        """Toggles user prefix/distinction and persists the state using StateManager."""
+        self.distinguish_users = not self.distinguish_users
+        await self.state_manager.set_value("distinguish_users", self.distinguish_users)
+        logger.info(f"User distinction toggled and persisted: {self.distinguish_users}")
+        return self.distinguish_users
+
     async def set_max_memory_length(self, limit: int):
         """Sets the conversational memory history size and persists using StateManager."""
         self.max_memory_length = limit

@@ -64,6 +64,9 @@ def build_dashboard_embed(client: discord.Client, status_msg: str = "정상 작�
     debug_mode = getattr(client, "debug_mode", False)
     debug_status = "🟢 활성화" if debug_mode else "🔴 비활성화"
 
+    distinguish_users = getattr(client, "distinguish_users", True)
+    distinguish_status = "🟢 활성화" if distinguish_users else "🔴 비활성화"
+
     embed = discord.Embed(
         title="🤖 Danddobot 관리 대시보드",
         description="단또봇의 실시간 상태를 모니터링하고 설정을 변경할 수 있는 전용 채널 콘솔입니다.",
@@ -71,9 +74,10 @@ def build_dashboard_embed(client: discord.Client, status_msg: str = "정상 작�
     )
     embed.add_field(name="🟢 시스템 상태", value=f"`{status_msg}`", inline=True)
     embed.add_field(name="💬 활성 대화 채널", value=channel_mention, inline=True)
+    embed.add_field(name="⏱️ Discord API 지연 시간", value=f"`{round(client.latency * 1000)}ms`", inline=True)
     embed.add_field(name="🧠 대화 기억 상태", value=f"`{memory_status}`", inline=True)
     embed.add_field(name="🔧 디버그 모드", value=f"`{debug_status}`", inline=True)
-    embed.add_field(name="⏱️ Discord API 지연 시간", value=f"`{round(client.latency * 1000)}ms`", inline=True)
+    embed.add_field(name="👤 사용자 구분", value=f"`{distinguish_status}`", inline=True)
     embed.add_field(name="🧠 LLM 엔진 설정", value=llm_info, inline=False)
     embed.add_field(name="📄 페르소나 설정", value=persona_status, inline=False)
     embed.set_footer(text=f"마지막 업데이트: {time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -753,6 +757,10 @@ class AdminDashboardView(ui.View):
         self.toggle_debug_btn.label = "🔧 디버그 모드: On" if debug_mode else "🔧 디버그 모드: Off"
         self.toggle_debug_btn.style = discord.ButtonStyle.success if debug_mode else discord.ButtonStyle.secondary
 
+        dist_users = getattr(client, "distinguish_users", True)
+        self.toggle_distinguish_btn.label = "👤 사용자 구분: On" if dist_users else "👤 사용자 구분: Off"
+        self.toggle_distinguish_btn.style = discord.ButtonStyle.success if dist_users else discord.ButtonStyle.secondary
+
     @ui.button(label="✏️ 페르소나 편집", style=discord.ButtonStyle.success, custom_id="danddobot_admin_edit", row=0)
     async def edit_persona_btn(self, interaction: discord.Interaction, button: ui.Button):
         logger.info(f"Edit persona modal requested by user {interaction.user} in {interaction.channel}")
@@ -889,3 +897,18 @@ class AdminDashboardView(ui.View):
         logger.info(f"Arbitrary message send requested by user {interaction.user}")
         modal = AdminMessageSendModal(self.client)
         await interaction.response.send_modal(modal)
+
+    @ui.button(label="👤 사용자 구분: Off", style=discord.ButtonStyle.secondary, custom_id="danddobot_admin_toggle_distinguish", row=2)
+    async def toggle_distinguish_btn(self, interaction: discord.Interaction, button: ui.Button):
+        logger.info(f"Toggle distinguish requested by user {interaction.user}")
+        new_state = await self.client.toggle_distinguish_users()
+        state_str = "활성화" if new_state else "비활성화"
+        
+        # Update button text and style dynamically
+        button.label = "👤 사용자 구분: On" if new_state else "👤 사용자 구분: Off"
+        button.style = discord.ButtonStyle.success if new_state else discord.ButtonStyle.secondary
+        
+        # Update dashboard embed and re-render the view components
+        embed = build_dashboard_embed(self.client, status_msg=f"사용자 구분 {state_str}")
+        await interaction.message.edit(embed=embed, view=self)
+        await interaction.response.send_message(f"✅ 사용자 구분 기능이 **{state_str}** 되었습니다!", ephemeral=True)
