@@ -478,12 +478,15 @@ class DanddobotClient(discord.Client):
             # Prompt, RAG Context, and Response fields
             embed.add_field(name="📝 프롬프트 (Raw Prompt)", value=f"```\n{safe_prompt}\n```", inline=False)
             
-            # Add RAG Context field if retrieved
-            if rag_context:
-                if len(rag_context) > 1000:
-                    safe_rag = rag_context[:1000] + "\n\n⚠️ 참고 지식이 너무 길어 일부가 잘렸습니다."
+            # Add RAG Context field if enabled
+            if self.rag_manager.is_enabled:
+                if rag_context:
+                    if len(rag_context) > 1000:
+                        safe_rag = rag_context[:1000] + "\n\n⚠️ 참고 지식이 너무 길어 일부가 잘렸습니다."
+                    else:
+                        safe_rag = rag_context
                 else:
-                    safe_rag = rag_context
+                    safe_rag = "(이용자 질문에 부합하는 연관 지식이 검색되지 않았습니다.)"
                 embed.add_field(name="🧠 RAG 참고 지식 (Retrieved Context)", value=f"```\n{safe_rag}\n```", inline=False)
 
             embed.add_field(name="📤 생성된 답변 (Response)", value=f"```\n{safe_response}\n```", inline=False)
