@@ -311,6 +311,7 @@ class OpenAICompatibleClient(BaseOpenAICompatibleClient):
 class CerebrasClient(BaseOpenAICompatibleClient):
     """
     Client for Cerebras Cloud Inference API (OpenAI Compatible with API Key authentication).
+    Supports multi-key rotation and failover on rate limits or failures.
     """
     def __init__(self, api_url: str, model: str, api_key: str, timeout: Optional[float] = 300.0,
                  temperature: Optional[float] = None, max_tokens: Optional[int] = None,
@@ -328,6 +329,63 @@ class CerebrasClient(BaseOpenAICompatibleClient):
             top_p=top_p,
             top_k=top_k
         )
+        self.api_keys = [k.strip() for k in api_key.split(",") if k.strip()] if api_key else []
+        self.current_key_index = 0
+        logger.info(f"CerebrasClient initialized with {len(self.api_keys)} registered API keys.")
+
+    def _get_headers(self) -> dict:
+        headers = {}
+        if self.api_keys:
+            # Safely clamp index
+            idx = self.current_key_index % len(self.api_keys)
+            active_key = self.api_keys[idx]
+            redacted = active_key[:4] + "..." + active_key[-4:] if len(active_key) > 8 else "..."
+            logger.debug(f"Using Cerebras API key index {idx}: {redacted}")
+            headers["Authorization"] = f"Bearer {active_key}"
+        return headers
+
+    async def generate_response(self, prompt: str, system_prompt: Optional[str] = None, history: Optional[list[dict]] = None) -> str:
+        if not self.api_keys:
+            raise RuntimeError("등록된 Cerebras API 키가 없습니다. .env 파일을 확인해 주세요.")
+
+        attempts = len(self.api_keys)
+        last_exception = None
+
+        for attempt in range(attempts):
+            idx = self.current_key_index % len(self.api_keys)
+            self.current_key_index = idx  # Keep it clean
+            
+            try:
+                # Call the base class generate_response, which will use our overridden _get_headers()
+                return await super().generate_response(prompt, system_prompt, history)
+            except Exception as e:
+                last_exception = e
+                redacted_key = self.api_keys[idx][:4] + "..." + self.api_keys[idx][-4:] if len(self.api_keys[idx]) > 8 else "..."
+                logger.warning(
+                    f"[Cerebras Failover] API key index {idx} ({redacted_key}) failed (Attempt {attempt + 1}/{attempts}). "
+                    f"Error: {e}. Rotating to next key..."
+                )
+                # Rotate key index
+                self.current_key_index = (self.current_key_index + 1) % len(self.api_keys)
+
+        logger.critical("[Cerebras Failover] All registered Cerebras API keys have failed.")
+        raise RuntimeError(f"모든 등록된 Cerebras API 키 호출에 실패했습니다. (최종 에러: {last_exception})") from last_exception
+
+    async def get_available_models(self) -> list[str]:
+        if not self.api_keys:
+            return []
+
+        attempts = len(self.api_keys)
+        for attempt in range(attempts):
+            idx = self.current_key_index % len(self.api_keys)
+            self.current_key_index = idx
+            
+            try:
+                return await super().get_available_models()
+            except Exception as e:
+                logger.warning(f"[Cerebras Failover] Failed to fetch models with key index {idx}: {e}. Rotating...")
+                self.current_key_index = (self.current_key_index + 1) % len(self.api_keys)
+        return []
 
 
 class LLMClientFactory:
