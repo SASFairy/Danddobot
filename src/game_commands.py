@@ -17,7 +17,7 @@ def setup_game_commands(client: discord.Client):
         # Prevent actions if db is not initialized
         db = getattr(client, "db", None)
         if not db:
-            await interaction.response.send_message("❌ 데이터베이스 시스템이 로딩되지 않았습니다냥!", ephemeral=True)
+            await interaction.response.send_message("❌ 데이터베이스 시스템이 로딩되지 않았다냥!", ephemeral=True)
             return
 
         user_id = interaction.user.id
@@ -37,13 +37,13 @@ def setup_game_commands(client: discord.Client):
                     f"• 보유 잔액: {existing_user['money']:,}원\n"
                     f"• 가입 일시: {existing_user['created_at']}\n\n"
                     f"이 상황에 대해 이미 가입된 단또봇 미니게임 회원인데 또 가입하려 한다며 어이없어하고, "
-                    f"사용자의 어리석음을 놀리며 잔액({existing_user['money']:,}원)을 공개적으로 소문내는 유쾌하고 얄미운 '단또봇' 말투(츤데레, 야옹체)로 아주 짧게(2~3문장) 말해주세요."
+                    f"사용자의 어리석음을 놀리며 잔액({existing_user['money']:,}원)을 공개적으로 소문내는 유쾌하고 얄미운 무례한 '단또봇' 말투(츤데레, 야옹체)로 아주 짧게(2~3문장) 말해주세요."
                 )
                 ai_reaction = await client.llm_client.generate_response(prompt, client.persona_prompt)
                 
                 embed = discord.Embed(
-                    title="🐱 바보냐냥?! 이미 가입되어 있다냥!",
-                    description=f"이미 가입하셔서 웰컴 지원금을 챙겨가셨습니다냥!\n\n"
+                    title="🐱 바보냥?! 이미 가입되어 있다냥!",
+                    description=f"이미 가입셔서 웰컴 지원금을 챙겨갔다냥!\n\n"
                                 f"💵 **보유 잔액:** {existing_user['money']:,}원\n"
                                 f"📅 **가입 일시:** {existing_user['created_at']}",
                     color=0xE74C3C  # Red-ish
@@ -60,18 +60,18 @@ def setup_game_commands(client: discord.Client):
                 # Request reactive LLM comment for new signup
                 prompt = (
                     f"사용자 {username}님이 단또봇 미니게임에 성공적으로 가입하여 지원금 50,000원을 지급받았습니다.\n\n"
-                    f"신규 가입을 격하게 환영하면서, 지원금 50,000원으로 탕진하지 말고 잘 불려보라고 츤데레 섞인 '단또봇' 말투(야옹체)로 짧고 귀엽게(2~3문장) 말해주세요. "
+                    f"신규 가입을 적당히 환영하면서, 지원금 50,000원으로 탕진하지 말고 잘 불려보라고 싸가지 없지만 츤데레 섞인 '단또봇' 말투(야옹체)로 짧고 귀엽게(2~3문장) 말해주세요. "
                     f"사용할 수 있는 명령어는 /가입, /출석체크, /룰렛, /확인이 있다는 점도 넌지시 언급해주세요."
                 )
                 ai_reaction = await client.llm_client.generate_response(prompt, client.persona_prompt)
 
                 embed = discord.Embed(
                     title="🎉 단또봇 미니게임 회원가입 완료!",
-                    description=f"반갑다냥, **{username}**님! 가입 기념 지원금이 입금되었습니다.\n\n"
+                    description=f"반갑다냥, **{username}**님! 가입 기념 지원금이 입금했다냥.\n\n"
                                 f"💵 **지급 금액:** 50,000원\n"
                                 f"🎮 **사용 가능 명령어:**\n"
-                                f"• `/가입` : 회원 가입 상태 및 보유 잔고 확인 (중복 가입 시 공개망신)\n"
-                                f"• `/출석체크` : 일일 출석 10,000원 획득 (7일 연속 출석 시 100,000원 대박 보너스)\n"
+                                f"• `/가입` : 회원 가입 상태 및 보유 잔고 확인\n"
+                                f"• `/출석체크` : 일일 출석 10,000원 획득 (7일 연속 출석 시 100,000원 보너스)\n"
                                 f"• `/룰렛 [배팅금액]` : 0~9 무작위 숫자 3개를 맞추는 룰렛 게임 진행 (최소 배팅 500원)\n"
                                 f"• `/확인` : 내 소지 잔고 및 출석일, 아이템 확인 (나만 보기)\n\n"
                                 f"지금 바로 `/출석체크`나 `/룰렛`에 도전해 보라냥!",
@@ -104,17 +104,17 @@ def setup_game_commands(client: discord.Client):
             # 1. Fetch user information
             user = await db.get_user(user_id)
             if not user:
-                await interaction.response.send_message("⚠️ 아직 미니게임에 가입하지 않으셨습니다냥!\n먼저 `/가입` 명령어를 입력해 가입해 주세요!", ephemeral=True)
+                await interaction.response.send_message("⚠️ 아직 미니게임에 가입하지 않았다냥!\n먼저 `/가입` 명령어를 입력해 가입하라냥!", ephemeral=True)
                 return
 
             # 2. Check betting amount constraints
             if betting_amount < 500:
-                await interaction.response.send_message("❌ 최소 배팅 금액은 **500원**입니다냥!", ephemeral=True)
+                await interaction.response.send_message("❌ 최소 배팅 금액은 **500원**이다냥!", ephemeral=True)
                 return
 
             if user["money"] < betting_amount:
                 await interaction.response.send_message(
-                    f"❌ 잔액이 부족합니다냥!\n"
+                    f"❌ 잔액이 부족하다냥!\n"
                     f"• **보유 잔액:** {user['money']:,}원\n"
                     f"• **배팅 시도액:** {betting_amount:,}원",
                     ephemeral=True
@@ -159,8 +159,8 @@ def setup_game_commands(client: discord.Client):
                     f"• 배팅 금액: {betting_amount:,}원\n"
                     f"• 획득 당첨금: {payout:,}원 (배팅액의 4배)\n"
                     f"• 현재 사용자의 소지 잔고: {user['money'] + winnings_change:,}원\n\n"
-                    f"이 기쁜 소식에 대해 '단또봇'으로서 어안이 벙벙해하며 축하하고, "
-                    f"자기 일처럼 신나서 츄르를 살 준비를 하라는 츤데레 섞인 장난스러운 축하 멘트를 단또봇 말투(야옹체)로 아주 짧게(2~3문장) 작성해주세요."
+                    f"이 소식에 대해 '단또봇'으로서 어안이 벙벙해하며 적당히 축하하고, "
+                    f"인간 치고는 운이 좋다며 츤데레 섞인 장난스러운 축하 멘트를 단또봇 말투(야옹체)로 아주 짧게(2~3문장) 작성해주세요."
                 )
             elif matches == 2:
                 # 2 matching: 2x payout
@@ -174,7 +174,7 @@ def setup_game_commands(client: discord.Client):
                     f"• 배팅 금액: {betting_amount:,}원\n"
                     f"• 획득 당첨금: {payout:,}원 (배팅액의 2배)\n"
                     f"• 현재 사용자의 소지 잔고: {user['money'] + winnings_change:,}원\n\n"
-                    f"당첨을 축하하면서도 다음엔 더 모험해보라며 허세를 피우거나 조언하는 츤데레 '단또봇' 말투(야옹체)의 멘트를 아주 짧게(2~3문장) 작성해주세요."
+                    f"당첨을 마지못해 축하하면서도 다음엔 더 모험해보라며 허세를 피우거나 조언하는 싸가지 없는 츤데레 '단또봇' 말투(야옹체)의 멘트를 아주 짧게(2~3문장) 작성해주세요."
                 )
             else:
                 # No matches: Lose bet
@@ -187,7 +187,7 @@ def setup_game_commands(client: discord.Client):
                     f"• 결과: [{num1}, {num2}, {num3}]\n"
                     f"• 배팅 금액: {betting_amount:,}원\n"
                     f"• 현재 사용자의 소지 잔고: {user['money'] + winnings_change:,}원\n\n"
-                    f"돈을 날린 사용자를 격하게 비웃고 한심해하며, 고소해 죽겠다는 듯한 얄미우면서도 장난스러운 '단또봇' 특유의 놀림 멘트를 야옹체로 아주 짧고 얄밉게(2~3문장) 작성해주세요."
+                    f"돈을 날린 사용자를 격하게 비웃고 한심해하며, 고소해 죽겠다는 듯한 얄미우면서도 싸가지 없는 '단또봇' 특유의 놀림 멘트를 야옹체로 아주 짧고 얄밉게(2~3문장) 작성해주세요."
                 )
 
             # Update database
@@ -224,7 +224,7 @@ def setup_game_commands(client: discord.Client):
     async def checkin(interaction: discord.Interaction):
         db = getattr(client, "db", None)
         if not db:
-            await interaction.response.send_message("❌ 데이터베이스 시스템이 로딩되지 않았습니다냥!", ephemeral=True)
+            await interaction.response.send_message("❌ 데이터베이스 시스템이 로딩되지 않았다냥!", ephemeral=True)
             return
 
         user_id = interaction.user.id
@@ -241,7 +241,7 @@ def setup_game_commands(client: discord.Client):
             status = result["status"]
 
             if status == "not_registered":
-                await interaction.response.send_message("⚠️ 아직 가입하지 않으셨습니다냥!\n먼저 `/가입` 명령어를 통해 등록을 해주세요!", ephemeral=True)
+                await interaction.response.send_message("⚠️ 아직 가입하지 않았다냥!\n먼저 `/가입` 명령어를 통해 등록하라냥!", ephemeral=True)
                 return
 
             if status == "already":
@@ -249,16 +249,16 @@ def setup_game_commands(client: discord.Client):
                 
                 # Already checked in today. Ask LLM to mock them
                 prompt = (
-                    f"사용자 {username}님이 오늘 이미 출석체크를 완료했는데, 욕심내서 욕심 부리며 한 번 더 /출석체크를 입력했습니다.\n"
+                    f"사용자 {username}님이 오늘 이미 출석체크를 완료했는데, 돈을 받기 위해 혹은 실수로 욕심 부리며 한 번 더 /출석체크를 입력했습니다.\n"
                     f"• 현재 소지 잔고: {result['money']:,}원\n"
                     f"• 연속 출석일수: {result['streak']}일\n\n"
-                    f"이 상황에 대해 오늘 이미 출석 보상을 받았으니 내일 다시 오라고 타박하고, "
-                    f"욕심쟁이라며 사용자에게 핀잔을 주고 쫓아내려는 새침떼기 '단또봇' 말투(츤데레, 야옹체)로 짧고 귀엽게(2~3문장) 말해주세요."
+                    f"이 상황에 대해 오늘 이미 출석 보상을 받았으니 내일 다시 오라고 멍청하다고 타박하고, "
+                    f"욕심쟁이라며 사용자에게 핀잔을 주고 쫓아내려는 싸가지 없는 '단또봇' 말투(츤데레, 야옹체)로 짧고 귀엽게(2~3문장) 말해주세요."
                 )
                 ai_reaction = await client.llm_client.generate_response(prompt, client.persona_prompt)
 
                 embed = discord.Embed(
-                    title="🛑 욕심쟁이 집사녀석, 중복 출석 불가다냥!",
+                    title="🛑 멍청한 인간이다냥, 중복 출석 불가다냥!",
                     description=f"오늘 이미 출석체크 스탬프를 도장을 쾅 찍으셨습니다!\n\n"
                                 f"💵 **보유 잔고:** {result['money']:,}원\n"
                                 f"📅 **연속 출석일:** {result['streak']}일 연속",
@@ -278,14 +278,14 @@ def setup_game_commands(client: discord.Client):
 
                 if is_bonus:
                     # 7 days streak bonus (100,000 won)
-                    result_title = "🎉 기적의 7일 연속 출석 달성! 대박 보너스! 🎉"
+                    result_title = "🎉 7일 연속 출석 달성! 🎉"
                     color = 0xF1C40F  # Golden
                     prompt = (
                         f"사용자 {username}님이 기어코 '7일 연속 출석체크'를 달성하여 보너스 지원금 {reward:,}원(일반 금액의 10배!)을 획득했습니다!\n"
                         f"• 오늘 지급 보너스: {reward:,}원\n"
                         f"• 현재 사용자의 소지 잔고: {new_money:,}원\n\n"
-                        f"기특하게도 매일같이 찾아온 사용자를 기특해하며 격하게 축하해주고, "
-                        f"기분이 좋아졌으니 이참에 돈을 크게 불려보라거나 나에게 츄르를 쏘라는 장난기 어필과 축하를 버무린 '단또봇' 말투(야옹체)로 아주 신나게(2~3문장) 말해주세요."
+                        f"기특하게도 매일같이 찾아온 사용자를 은근히 축하해주고, "
+                        f"기분이 좋아졌으니 이참에 돈을 크게 불려보라거나 나에게 츄르나 생선을 쏘라는 장난기 어필과 축하를 버무린 '단또봇' 말투(야옹체)로 아주 신나게(2~3문장) 말해주세요."
                     )
                 else:
                     # Regular checkin (10,000 won)
@@ -296,7 +296,7 @@ def setup_game_commands(client: discord.Client):
                         f"• 오늘 지급액: {reward:,}원\n"
                         f"• 현재 연속 출석 기록: {streak}일 연속\n"
                         f"• 현재 사용자의 소지 잔고: {new_money:,}원\n\n"
-                        f"반갑게 아침/하루 인사를 건네며 오늘의 출석 정산금 10,000원을 지급했다는 사실을 알리고, "
+                        f"적당히 무례하게 아침/하루 인사를 건네며 오늘의 출석 정산금 10,000원을 지급했다는 사실을 알리고, "
                         f"이 돈을 룰렛으로 한순간에 날려먹지 말고 소중히 여기라는 츤데레 섞인 단또봇 말투(야옹체)로 짧게(2~3문장) 말해주세요."
                     )
 
@@ -324,7 +324,7 @@ def setup_game_commands(client: discord.Client):
     async def confirm_status(interaction: discord.Interaction):
         db = getattr(client, "db", None)
         if not db:
-            await interaction.response.send_message("❌ 데이터베이스 시스템이 로딩되지 않았습니다냥!", ephemeral=True)
+            await interaction.response.send_message("❌ 데이터베이스 시스템이 로딩되지 않았다냥!", ephemeral=True)
             return
 
         user_id = interaction.user.id
@@ -334,7 +334,7 @@ def setup_game_commands(client: discord.Client):
             # Strictly ephemeral = True, only visible to the user who ran the command
             user = await db.get_user(user_id)
             if not user:
-                await interaction.response.send_message("⚠️ 아직 가입하지 않으셨습니다냥!\n먼저 `/가입` 명령어를 입력해 등록해 주세요!", ephemeral=True)
+                await interaction.response.send_message("⚠️ 아직 가입하지 않았다냥!\n먼저 `/가입` 명령어를 입력해 등록하라냥!", ephemeral=True)
                 return
 
             # Display parsing items (JSON parsed as list/list display)
@@ -346,11 +346,11 @@ def setup_game_commands(client: discord.Client):
             except Exception:
                 items_list = []
                 
-            items_display = ", ".join(items_list) if items_list else "소지 중인 아이템이 없습니다냥 🎒"
+            items_display = ", ".join(items_list) if items_list else "소지 중인 아이템이 없다냥. 🎒"
 
             embed = discord.Embed(
                 title=f"🎒 {username}님의 비밀 가방 정보 카드 🎒",
-                description="해당 정보 카드는 오직 귀하에게만 보입니다냥! (Secret/Ephemeral)",
+                description="해당 정보 카드는 오직 사용자에게만 보인다냥! (Secret/Ephemeral)",
                 color=0x3498DB  # Blue-ish
             )
             embed.set_thumbnail(url=interaction.user.display_avatar.url if interaction.user.display_avatar else None)
@@ -364,7 +364,7 @@ def setup_game_commands(client: discord.Client):
 
         except Exception as e:
             logger.error(f"Error handling confirm_status command for {username} ({user_id}): {e}")
-            await interaction.response.send_message("❌ 내 정보 확인 도중 치명적인 시스템 요류가 발생했다냥!", ephemeral=True)
+            await interaction.response.send_message("❌ 내 정보 확인 도중 치명적인 시스템 오류가 발생했다냥!", ephemeral=True)
 
     @client.tree.command(name="가위바위보", description="다른 사용자와 가위바위보 내기를 진행합니다. (수수료 20%, 5분 쿨다운)")
     @app_commands.describe(
@@ -374,40 +374,40 @@ def setup_game_commands(client: discord.Client):
     async def play_rps(interaction: discord.Interaction, opponent: discord.Member, bet_amount: int):
         db = getattr(client, "db", None)
         if not db:
-            await interaction.response.send_message("❌ 데이터베이스 시스템이 로딩되지 않았습니다냥!", ephemeral=True)
+            await interaction.response.send_message("❌ 데이터베이스 시스템이 로딩되지 않았다냥!", ephemeral=True)
             return
 
         challenger = interaction.user
         
         # 1. Basic validations
         if bet_amount < 500 or bet_amount > 10000000:
-            await interaction.response.send_message("❌ 배팅 금액은 **500원** 이상, **10,000,000원** 이하 범위에서만 정할 수 있습니다냥!", ephemeral=True)
+            await interaction.response.send_message("❌ 배팅 금액은 **500원** 이상, **10,000,000원** 이하 범위에서만 정할 수 있다냥!", ephemeral=True)
             return
             
         if challenger.id == opponent.id:
-            await interaction.response.send_message("❌ 스스로와 가위바위보를 할 순 없습니다냥!", ephemeral=True)
+            await interaction.response.send_message("❌ 스스로와 가위바위보를 할 순 없다냥! 너는 거울하고 가위바위보 해서 이길수 있겠냥?!", ephemeral=True)
             return
             
         if opponent.bot:
-            await interaction.response.send_message("❌ 봇과는 대적할 수 없습니다냥!", ephemeral=True)
+            await interaction.response.send_message("❌ 봇과는 대적할 수 없다냥!", ephemeral=True)
             return
 
         try:
             # 2. Registration validations
             u_challenger = await db.get_user(challenger.id)
             if not u_challenger:
-                await interaction.response.send_message("⚠️ 아직 가입하지 않으셨습니다냥!\n먼저 `/가입` 명령어를 입력해 등록해 주세요!", ephemeral=True)
+                await interaction.response.send_message("⚠️ 아직 가입하지 않았다냥!\n먼저 `/가입` 명령어를 입력해 등록하라냥!", ephemeral=True)
                 return
                 
             u_opponent = await db.get_user(opponent.id)
             if not u_opponent:
-                await interaction.response.send_message(f"⚠️ 상대방 `{opponent.display_name}`님은 아직 가입하지 않은 상태라 내기가 불가합니다냥!", ephemeral=True)
+                await interaction.response.send_message(f"⚠️ 상대방 `{opponent.display_name}`님은 아직 가입하지 않은 상태라 내기가 불가하다냥!", ephemeral=True)
                 return
 
             # 3. Money balance checks
             if u_challenger["money"] < bet_amount:
                 await interaction.response.send_message(
-                    f"❌ 배팅할 소지금이 부족합니다냥!\n"
+                    f"❌ 배팅할 소지금이 부족하다냥!\n"
                     f"• 내 잔액: {u_challenger['money']:,}원\n"
                     f"• 신청 배팅액: {bet_amount:,}원",
                     ephemeral=True
@@ -416,7 +416,7 @@ def setup_game_commands(client: discord.Client):
                 
             if u_opponent["money"] < bet_amount:
                 await interaction.response.send_message(
-                    f"❌ 상대방 `{opponent.display_name}`님의 보유 골드가 부족하여 내기를 걸 수 없습니다냥!\n"
+                    f"❌ 상대방 `{opponent.display_name}`님의 보유 골드가 부족하여 내기를 걸 수 없다냥!\n"
                     f"• 상대방 보유액: {u_opponent['money']:,}원",
                     ephemeral=True
                 )
@@ -424,11 +424,11 @@ def setup_game_commands(client: discord.Client):
 
             # 4. Active players checks
             if challenger.id in ACTIVE_RPS_PLAYERS:
-                await interaction.response.send_message("❌ 현재 가위바위보 게임에 대기 중이거나 플레이 중입니다냥!", ephemeral=True)
+                await interaction.response.send_message("❌ 현재 가위바위보 게임에 대기 중이거나 플레이 중이다냥!", ephemeral=True)
                 return
                 
             if opponent.id in ACTIVE_RPS_PLAYERS:
-                await interaction.response.send_message(f"❌ 상대방 `{opponent.display_name}`님이 현재 이미 다른 유저와 대결 중입니다냥!", ephemeral=True)
+                await interaction.response.send_message(f"❌ 상대방 `{opponent.display_name}`님이 현재 이미 다른 유저와 대결 중이다냥!", ephemeral=True)
                 return
 
             # 5. Cooldown checks (5 mins = 300s)
@@ -454,7 +454,7 @@ def setup_game_commands(client: discord.Client):
                 if diff.total_seconds() < 300:
                     remaining = int(300 - diff.total_seconds())
                     await interaction.response.send_message(
-                        f"❌ 아직 손가락 쿨다운이 풀리지 않았습니다냥!\n"
+                        f"❌ 아직 손가락 쿨다운이 풀리지 않았다냥! 그렇게나 승부가 좋냥?\n"
                         f"• 남은 재도전 대기시간: **{remaining}초**",
                         ephemeral=True
                     )
@@ -467,7 +467,7 @@ def setup_game_commands(client: discord.Client):
             # Build challenge accept view and send public notice
             embed = discord.Embed(
                 title="✊✌️✋ 가위바위보 세기의 대결 신청 ⚔️",
-                description=f"### {challenger.mention}님이 {opponent.mention}님에게 목숨 건 단판 가위바위보 내기를 걸었습니다냥!\n\n"
+                description=f"### {challenger.mention}님이 {opponent.mention}님에게 목숨 건 단판 가위바위보 내기를 걸었다냥!\n\n"
                             f"💰 **배팅 금액**: `{bet_amount:,}원`\n"
                             f"⚖️ **수수료**: `20%` (승자 실제 수령액: `{int(bet_amount * 1.8):,}원`)\n"
                             f"⏰ **대결 수락 대기시간**: `30초` (이내에 수락 버튼을 누르지 않으면 자동 취소)",
@@ -593,7 +593,7 @@ class RPSGameSession:
                 result_title = "🛑 대결 무효! (쌍방 기권) 🛑"
                 color = 0x95A5A6 # Grey
                 winner_id, loser_id = None, None
-                reason_msg = "두 분 모두 10초 이내에 선택하지 않아 쌍방 실격(무승부) 처리되었습니다냥!"
+                reason_msg = "둘 다 모두 15초 이내에 선택하지 않아 쌍방 실격(무승부) 처리되었다냥!"
                 await send_rps_debug_log(self.client, "[RPS-DEBUG] Result determined: Double Timeout (Tie/No action)")
             elif c_choice is None:
                 # Challenger A timed out
@@ -601,7 +601,7 @@ class RPSGameSession:
                 loser = self.challenger
                 result_title = f"🏆 {winner.display_name}님 기권승! 🏆"
                 color = 0x2ECC71
-                reason_msg = f"{self.challenger.display_name}님이 10초 내 선택에 실패하여 {self.opponent.display_name}님이 기권승하셨습니다냥!"
+                reason_msg = f"{self.challenger.display_name}님이 15초 내 선택에 실패하여 {self.opponent.display_name}님이 기권승했다냥!"
                 await send_rps_debug_log(self.client, f"[RPS-DEBUG] Result determined: Opponent {winner.display_name} wins by Challenger timeout")
             elif o_choice is None:
                 # Opponent B timed out
@@ -609,13 +609,13 @@ class RPSGameSession:
                 loser = self.opponent
                 result_title = f"🏆 {winner.display_name}님 기권승! 🏆"
                 color = 0x2ECC71
-                reason_msg = f"{self.opponent.display_name}님이 10초 내 선택에 실패하여 {self.challenger.display_name}님이 기권승하셨습니다냥!"
+                reason_msg = f"{self.opponent.display_name}님이 15초 내 선택에 실패하여 {self.challenger.display_name}님이 기권승했다냥!"
                 await send_rps_debug_log(self.client, f"[RPS-DEBUG] Result determined: Challenger {winner.display_name} wins by Opponent timeout")
             elif c_choice == o_choice:
                 # Tie
                 result_title = "🤝 가위바위보 비겼습니다냥! 🤝"
                 color = 0x3498DB # Blue
-                reason_msg = f"두 분 모두 **{choice_emojis[c_choice]}**를 내어 승부가 나지 않았습니다냥. 판돈은 그대로 보존됩니다."
+                reason_msg = f"둘 다 모두 **{choice_emojis[c_choice]}**를 내어 승부가 나지 않았다냥. 판돈은 그대로 보존된다냥."
                 await send_rps_debug_log(self.client, f"[RPS-DEBUG] Result determined: Tie on {c_choice}")
             else:
                 # Standard win/lose check
@@ -628,7 +628,7 @@ class RPSGameSession:
                     winner = self.opponent
                     loser = self.challenger
                     
-                result_title = f"🏆 대결 종료! {winner.display_name}님의 대승리! 🏆"
+                result_title = f"🏆 대결 종료! {winner.display_name}님의 승리! 🏆"
                 color = 0xF1C40F # Gold
                 reason_msg = (
                     f"• {self.challenger.display_name}: **{choice_emojis[c_choice]}**\n"
@@ -653,10 +653,10 @@ class RPSGameSession:
                     )
                     await send_rps_debug_log(self.client, "[RPS-DEBUG] Database ledger update succeeded.")
                 else:
-                    payout_msg = "⚠️ [오류] 판돈 이체 정산 중 예상치 못한 DB 오류가 발생했습니다. 수동 정산이 필요합니다냥!"
+                    payout_msg = "⚠️ [오류] 판돈 이체 정산 중 예상치 못한 DB 오류가 발생했습니다. 수동 정산이 필요하다냥!"
                     await send_rps_debug_log(self.client, "[RPS-DEBUG] Database ledger update failed! Potential database lock or connection error.")
             else:
-                payout_msg = "💵 **베팅 판돈 정산 결과**\n• 무승부 또는 쌍방 기권으로 자산 변동이 없습니다냥!"
+                payout_msg = "💵 **베팅 판돈 정산 결과**\n• 무승부 또는 쌍방 기권으로 자산 변동이 없다냥!"
                 await send_rps_debug_log(self.client, "[RPS-DEBUG] No database balance change needed.")
                 
             # Request LLM reaction
@@ -668,7 +668,7 @@ class RPSGameSession:
                     f"• 수락자 {self.opponent.display_name}: {choice_emojis[o_choice]} 선택\n"
                     f"• 최종 승리자: {winner.display_name} (+{int(self.bet_amount * 0.8):,}원 획득)\n"
                     f"• 최종 패배자: {loser.display_name} (-{self.bet_amount:,}원 손실)\n\n"
-                    f"가위바위보 결과를 전해 듣고, 승리한 {winner.display_name}님에게는 아주 크게 치켜세워주고 "
+                    f"가위바위보 결과를 전해 듣고, 승리한 {winner.display_name}님에게는 무례하지만 그래도 치켜세워주고 "
                     f"패배하여 돈을 날린 {loser.display_name}님을 향해 한심하다는 듯 격렬히 놀리고 웃겨 자빠지는 얄미운 '단또봇' 말투(츤데레, 야옹체)로 아주 짧게(2~3문장) 작성해주세요."
                 )
             else:
@@ -686,7 +686,7 @@ class RPSGameSession:
                 await send_rps_debug_log(self.client, f"[RPS-DEBUG] AI response fetched: {ai_reaction}")
             except Exception as e:
                 await send_rps_debug_log(self.client, f"[RPS-DEBUG] Failed to fetch AI reaction: {e}")
-                ai_reaction = "야옹... 너무 시시한 승부라 말문이 턱 막힌다냥!"
+                ai_reaction = "하아. 너무 시시한 승부라 말문이 턱 막힌다냥."
                 
             # Build outcome embed
             embed = discord.Embed(
@@ -740,9 +740,9 @@ class RPSEphemeralAcceptView(discord.ui.View):
                 ACTIVE_RPS_PLAYERS.discard(self.challenger.id)
                 ACTIVE_RPS_PLAYERS.discard(self.opponent.id)
                 
-                embed = discord.Embed(title="❌ 경기 진행 무산", description=f"신청자 {self.challenger.display_name}님의 자산 부족 문제로 취소되었습니다냥.", color=0xE74C3C)
+                embed = discord.Embed(title="❌ 경기 진행 무산", description=f"신청자 {self.challenger.display_name}님의 자산 부족 문제로 취소되었다냥.", color=0xE74C3C)
                 await self.parent_msg.edit(embed=embed, view=None)
-                await interaction.response.edit_message(content=f"❌ 신청자 {self.challenger.display_name}님의 보유 자산이 부족하여 경기 진행이 불가능합니다냥!", embed=None, view=None)
+                await interaction.response.edit_message(content=f"❌ 신청자 {self.challenger.display_name}님의 보유 자산이 부족하여 경기 진행이 불가능하다냥!", embed=None, view=None)
                 return
                 
             if not u_opponent or u_opponent["money"] < self.bet_amount:
@@ -750,7 +750,7 @@ class RPSEphemeralAcceptView(discord.ui.View):
                 ACTIVE_RPS_PLAYERS.discard(self.challenger.id)
                 ACTIVE_RPS_PLAYERS.discard(self.opponent.id)
                 
-                embed = discord.Embed(title="❌ 경기 진행 무산", description=f"수락자 {self.opponent.display_name}님의 자산 부족 문제로 취소되었습니다냥.", color=0xE74C3C)
+                embed = discord.Embed(title="❌ 경기 진행 무산", description=f"수락자 {self.opponent.display_name}님의 자산 부족 문제로 취소되었다냥.", color=0xE74C3C)
                 await self.parent_msg.edit(embed=embed, view=None)
                 await interaction.response.edit_message(content="❌ 본인의 보유 자산이 부족하여 수락이 불가능하다냥!", embed=None, view=None)
                 return
@@ -767,11 +767,11 @@ class RPSEphemeralAcceptView(discord.ui.View):
             # Update public message to choice state (primary response)
             embed = discord.Embed(
                 title="✊✌️✋ 선택 페이즈 시작!",
-                description=f"### 두 플레이어는 10초 이내에 아래 버튼을 눌러 승부를 내야 합니다냥!\n\n"
+                description=f"### 두 플레이어는 15초 이내에 아래 버튼을 눌러 승부를 내야 한다냥!\n\n"
                             f"• **신청자**: {self.challenger.mention}\n"
                             f"• **수락자**: {self.opponent.mention}\n"
                             f"• **배팅 판돈**: `{self.bet_amount:,}원`\n\n"
-                            f"⚠️ **주의**: 아래 가위, 바위, 보 버튼 중 하나를 클릭하면 나만 보기 메시지로 선택이 확정되며 상대방에게는 노출되지 않습니다냥!",
+                            f"⚠️ **주의**: 아래 가위, 바위, 보 버튼 중 하나를 클릭하면 나만 보기 메시지로 선택이 확정되며 상대방에게는 노출되지 않는다냥!",
                 color=0xF39C12
             )
             view = RPSMainChoiceView(self.client, session)
@@ -780,20 +780,20 @@ class RPSEphemeralAcceptView(discord.ui.View):
             
             # Edit the B's ephemeral view to confirm acceptance and guide selection
             await interaction.response.edit_message(
-                content="✅ 대결을 수락하셨습니다냥!\n메인 화면에 표시된 ✊ 바위, ✌️ 가위, ✋ 보 버튼 중 원하는 선택지를 **10초 이내**에 선택해 주세요!",
+                content="✅ 대결을 수락하셨습니다냥!\n메인 화면에 표시된 ✊ 바위, ✌️ 가위, ✋ 보 버튼 중 원하는 선택지를 **15초 이내**에 선택해 주세요!",
                 embed=None,
                 view=None
             )
             
-            # Start the 10-second game countdown in the background
-            asyncio.create_task(send_rps_debug_log(self.client, "[RPS-DEBUG] Starting 10-second background countdown task."))
+            # Start the 15-second game countdown in the background
+            asyncio.create_task(send_rps_debug_log(self.client, "[RPS-DEBUG] Starting 15-second background countdown task."))
             asyncio.create_task(view.start_countdown())
         except Exception as e:
             asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-CRITICAL-ERROR] Exception inside ephemeral accept_btn: {e}"))
             ACTIVE_RPS_PLAYERS.discard(self.challenger.id)
             ACTIVE_RPS_PLAYERS.discard(self.opponent.id)
             try:
-                await interaction.response.edit_message(content="❌ 가위바위보 수락 처리 과정 중 에러가 발생하여 대결이 취소되었습니다냥!", embed=None, view=None)
+                await interaction.response.edit_message(content="❌ 가위바위보 수락 처리 과정 중 에러가 발생하여 대결이 취소되었다냥!", embed=None, view=None)
             except Exception:
                 pass
                 
@@ -810,7 +810,7 @@ class RPSEphemeralAcceptView(discord.ui.View):
             
             embed = discord.Embed(
                 title="❌ 가위바위보 대결 거절됨",
-                description=f"수락자 {self.opponent.mention}님이 세기의 가위바위보 대결 매치를 취소/거절하셨습니다냥!",
+                description=f"수락자 {self.opponent.mention}님이 세기의 가위바위보 대결 매치를 취소/거절했다냥!",
                 color=0xE74C3C
             )
             await self.parent_msg.edit(embed=embed, view=None)
@@ -853,15 +853,15 @@ class RPSAcceptView(discord.ui.View):
             asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-DEBUG] View invitation button clicked by: {interaction.user.display_name} ({interaction.user.id})"))
             if interaction.user.id != self.opponent.id:
                 asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-DEBUG] Rejecting invitation click: User {interaction.user.display_name} is not the designated opponent {self.opponent.display_name}"))
-                await interaction.response.send_message(f"❌ 이 초대장은 수락 상대방인 {self.opponent.display_name}님 전용입니다냥!", ephemeral=True)
+                await interaction.response.send_message(f"❌ 이 초대장은 수락 상대방인 {self.opponent.display_name}님 전용이다냥!", ephemeral=True)
                 return
                 
             # Send ephemeral choice panel
             embed = discord.Embed(
                 title="✊✌️✋ 가위바위보 대결 신청 도착!",
-                description=f"**{self.challenger.display_name}**님이 가위바위보 대결을 신청하셨습니다냥!\n"
+                description=f"**{self.challenger.display_name}**님이 가위바위보 대결을 신청했다냥!\n"
                             f"• **배팅 판돈**: `{self.bet_amount:,}원`\n\n"
-                            f"수락하여 진정한 단또들의 승부를 겨루시겠습니까냥?",
+                            f"수락하여 진정한 맞다이를 까겠냥?",
                 color=0x3498DB
             )
             view = RPSEphemeralAcceptView(self.client, self.challenger, self.opponent, self.bet_amount, self.message, self)
@@ -875,7 +875,7 @@ class RPSAcceptView(discord.ui.View):
         try:
             asyncio.create_task(send_rps_debug_log(self.client, f"[RPS-DEBUG] Cancel button clicked by: {interaction.user.display_name} ({interaction.user.id})"))
             if interaction.user.id != self.challenger.id:
-                await interaction.response.send_message("❌ 이 대결 신청은 도전자(신청자)만 취소할 수 있습니다냥!", ephemeral=True)
+                await interaction.response.send_message("❌ 이 대결 신청은 도전자(신청자)만 취소할 수 있다냥!", ephemeral=True)
                 return
                 
             self.stop()
@@ -884,7 +884,7 @@ class RPSAcceptView(discord.ui.View):
             
             embed = discord.Embed(
                 title="❌ 가위바위보 대결 취소됨",
-                description=f"신청자 {self.challenger.mention}님이 대결 신청을 취소하셨습니다냥!",
+                description=f"신청자 {self.challenger.mention}님이 대결 신청을 취소했다냥!",
                 color=0xE74C3C
             )
             await interaction.response.edit_message(embed=embed, view=None)
@@ -895,13 +895,13 @@ class RPSAcceptView(discord.ui.View):
 
 class RPSMainChoiceView(discord.ui.View):
     def __init__(self, client, session: RPSGameSession):
-        super().__init__(timeout=15.0)  # slightly longer than 10s to be safe
+        super().__init__(timeout=20.0)  # slightly longer than 15s to be safe
         self.client = client
         self.session = session
         
     async def start_countdown(self):
-        # 10 seconds of action time
-        await asyncio.sleep(10.0)
+        # 15 seconds of action time
+        await asyncio.sleep(15.0)
         # Force end the session
         await self.session.process_outcome()
         self.stop()
@@ -911,26 +911,26 @@ class RPSMainChoiceView(discord.ui.View):
         
         # Check if user is in the session
         if user_id != self.session.challenger.id and user_id != self.session.opponent.id:
-            await interaction.response.send_message("❌ 이 대결에 관여된 플레이어만 선택할 수 있습니다냥!", ephemeral=True)
+            await interaction.response.send_message("❌ 이 대결에 관여된 플레이어만 선택할 수 있다냥!", ephemeral=True)
             return
 
         if self.session.finished:
-            await interaction.response.send_message("❌ 이미 대결 시간이 지나가버렸습니다냥! (시간초과 실격)", ephemeral=True)
+            await interaction.response.send_message("❌ 이미 대결 시간이 지나가버렸다냥! (시간초과 실격)", ephemeral=True)
             return
 
         if user_id == self.session.challenger.id:
             if self.session.challenger_choice is not None:
-                await interaction.response.send_message("❌ 이미 선택을 완료하셨습니다냥!", ephemeral=True)
+                await interaction.response.send_message("❌ 이미 선택을 완료했다냥!", ephemeral=True)
                 return
             self.session.challenger_choice = choice
         else:
             if self.session.opponent_choice is not None:
-                await interaction.response.send_message("❌ 이미 선택을 완료하셨습니다냥!", ephemeral=True)
+                await interaction.response.send_message("❌ 이미 선택을 완료했다냥!", ephemeral=True)
                 return
             self.session.opponent_choice = choice
 
         # Inform only the user: "바위를 선택하셨습니냥!"
-        await interaction.response.send_message(f"✅ **{choice}**를 선택하셨습니냥!", ephemeral=True)
+        await interaction.response.send_message(f"✅ **{choice}**를 선택했다냥!", ephemeral=True)
 
         asyncio.create_task(send_rps_debug_log(
             self.client, 
