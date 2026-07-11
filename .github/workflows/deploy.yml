@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+      - dev
+      - 'feature/*'
 
 jobs:
   deploy:
@@ -19,17 +21,19 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
           script: |
-            echo "🚀 Starting Deployment of Danddobot..."
+            echo "🚀 Starting Dynamic Deployment of Danddobot..."
             
             # Navigate to the configured project path on your server
             cd "${{ secrets.PROJECT_PATH }}" || { echo "❌ Directory not found!"; exit 1; }
             
-            # Pull the latest main branch from GitHub
-            echo "📥 Fetching latest code from GitHub..."
-            git pull origin main
+            # Fetch and dynamically checkout the branch that triggered this deployment
+            echo "📥 Fetching latest code for branch: ${{ github.ref_name }}..."
+            sudo git fetch origin
+            sudo git checkout ${{ github.ref_name }}
+            sudo git pull origin ${{ github.ref_name }}
             
             # Rebuild and start Docker containers in background
             echo "🐳 Rebuilding and spinning up Docker containers..."
-            docker compose up --build -d
+            sudo docker compose up --build -d
             
             echo "✅ Deployment completed successfully!"
