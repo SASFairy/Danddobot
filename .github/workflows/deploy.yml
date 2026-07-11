@@ -26,10 +26,10 @@ jobs:
             
             # Pull the latest main branch from GitHub
             echo "📥 Fetching latest code from GitHub..."
-            git pull origin main
+            sudo git pull origin main
             
             # Rebuild and start Docker containers in background
             echo "🐳 Rebuilding and spinning up Docker containers..."
-            docker compose up --build -d
+            sudo docker compose up --build -d
             
             echo "✅ Deployment completed successfully!"
