@@ -444,3 +444,265 @@ class AdminMessageSendModal(ui.Modal, title="📣 활성 채널로 메시지 전
         except Exception as e:
             logger.error(f"Failed to send arbitrary message to active channel: {e}")
             await interaction.response.send_message(f"❌ 메시지 전송 중 오류가 발생했습니다: `{e}`", ephemeral=True)
+
+
+class GameUserQueryModal(ui.Modal, title="🔍 미니게임 유저 정보 조회"):
+    def __init__(self, client: discord.Client):
+        super().__init__()
+        self.client = client
+        self.user_input = ui.TextInput(
+            label="디스코드 유저 ID 또는 유저명 입력",
+            style=discord.TextStyle.short,
+            placeholder="예: 123456789012345678 또는 SASFairy",
+            required=True
+        )
+        self.add_item(self.user_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        client = self.client
+        db = getattr(client, "db", None)
+        if not db:
+            await interaction.response.send_message("❌ DB 연결이 끊어져 있습니다옹!", ephemeral=True)
+            return
+            
+        search_val = self.user_input.value.strip()
+        user_info = None
+        
+        try:
+            user_id = int(search_val)
+            user_info = await db.get_user(user_id)
+        except ValueError:
+            user_info = await db.get_user_by_name(search_val)
+            
+        if not user_info:
+            await interaction.response.send_message(f"❌ '{search_val}'에 매칭되는 유저 정보가 존재하지 않습니다옹!", ephemeral=True)
+            return
+            
+        # Parse items JSON
+        import json
+        try:
+            items_list = json.loads(user_info["items"])
+        except Exception:
+            items_list = []
+        items_display = ", ".join(items_list) if items_list else "없음"
+        
+        detail_msg = (
+            f"👤 **단또봇 미니게임 유저 상세 정보**\n"
+            f"• **디스코드 이름**: `{user_info['username']}`\n"
+            f"• **유저 고유 ID**: `{user_info['user_id']}`\n"
+            f"• **보유 자산**: `{user_info['money']:,}원`\n"
+            f"• **연속 출석 기록**: `{user_info['checkin_streak']}일 연속`\n"
+            f"• **마지막 출석일**: `{user_info['last_checkin'] or '기록 없음'}`\n"
+            f"• **가방 아이템**: `{items_display}`\n"
+            f"• **최초 가입 일자**: `{user_info['created_at']}`"
+        )
+        await interaction.response.send_message(detail_msg, ephemeral=True)
+
+
+class GameBalanceAdjustModal(ui.Modal, title="💵 미니게임 유저 자산 조정"):
+    def __init__(self, client: discord.Client):
+        super().__init__()
+        self.client = client
+        self.user_input = ui.TextInput(
+            label="대상 디스코드 유저 ID",
+            style=discord.TextStyle.short,
+            placeholder="숫자 고유 ID만 입력 가능합니다.",
+            required=True
+        )
+        self.amount_input = ui.TextInput(
+            label="조정할 금액 설정 (+/- 부호 가능)",
+            style=discord.TextStyle.short,
+            placeholder="예: +50000, -25000, 100000 (설정)",
+            required=True
+        )
+        self.add_item(self.user_input)
+        self.add_item(self.amount_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        client = self.client
+        db = getattr(client, "db", None)
+        if not db:
+            await interaction.response.send_message("❌ DB 연결 실패", ephemeral=True)
+            return
+            
+        try:
+            user_id = int(self.user_input.value.strip())
+        except ValueError:
+            await interaction.response.send_message("❌ 유저 고유 ID는 숫자로만 입력해 주세요!", ephemeral=True)
+            return
+            
+        user_info = await db.get_user(user_id)
+        if not user_info:
+            await interaction.response.send_message(f"❌ 해당 ID `{user_id}`는 미가입 사용자입니다.", ephemeral=True)
+            return
+            
+        amount_str = self.amount_input.value.strip()
+        current_money = user_info["money"]
+        new_money = current_money
+        
+        try:
+            if amount_str.startswith("+"):
+                diff = int(amount_str[1:])
+                new_money = current_money + diff
+            elif amount_str.startswith("-"):
+                diff = int(amount_str[1:])
+                new_money = current_money - diff
+            else:
+                new_money = int(amount_str)
+        except ValueError:
+            await interaction.response.send_message("❌ 기호 정수 또는 일반 정수만 기입하세요옹!", ephemeral=True)
+            return
+            
+        if new_money < 0:
+            await interaction.response.send_message(f"❌ 유저 자산은 0원 아래로 떨어질 수 없습니다. (연산액: {new_money:,}원)", ephemeral=True)
+            return
+            
+        success = await db.admin_update_user(user_id, {"money": new_money})
+        if success:
+            logger.warning(f"Admin {interaction.user} adjusted user {user_id} assets: {current_money} -> {new_money}")
+            from .embeds import build_game_admin_embed
+            embed = await build_game_admin_embed(client)
+            await interaction.message.edit(embed=embed)
+            await interaction.response.send_message(
+                f"✅ `{user_info['username']}`님의 소지 잔액이 조정되었습니다옹!\n"
+                f"• **기존 잔액**: {current_money:,}원\n"
+                f"• **변경 잔액**: {new_money:,}원 (변동: {new_money - current_money:+,}원)",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message("❌ DB 업데이트 실패", ephemeral=True)
+
+
+class GameStreakAdjustModal(ui.Modal, title="📅 미니게임 출석 및 Streak 관리"):
+    def __init__(self, client: discord.Client):
+        super().__init__()
+        self.client = client
+        self.user_input = ui.TextInput(
+            label="대상 디스코드 유저 ID",
+            style=discord.TextStyle.short,
+            placeholder="숫자 고유 ID만 입력하세요.",
+            required=True
+        )
+        self.streak_input = ui.TextInput(
+            label="연속 출석일 수 설정 (정수)",
+            style=discord.TextStyle.short,
+            placeholder="예: 0, 3, 7",
+            required=True
+        )
+        self.date_input = ui.TextInput(
+            label="최종 출석 일자 입력 (YYYY-MM-DD)",
+            style=discord.TextStyle.short,
+            placeholder="예: 2026-07-11 (밀어내려면 '초기화' 기입)",
+            required=True
+        )
+        self.add_item(self.user_input)
+        self.add_item(self.streak_input)
+        self.add_item(self.date_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        client = self.client
+        db = getattr(client, "db", None)
+        if not db:
+            await interaction.response.send_message("❌ DB 연결 실패", ephemeral=True)
+            return
+            
+        try:
+            user_id = int(self.user_input.value.strip())
+            streak = int(self.streak_input.value.strip())
+        except ValueError:
+            await interaction.response.send_message("❌ 유저 ID와 연속 출석일은 반드시 정수형 정수여야 합니다옹!", ephemeral=True)
+            return
+            
+        user_info = await db.get_user(user_id)
+        if not user_info:
+            await interaction.response.send_message(f"❌ 해당 ID `{user_id}` 유저를 찾지 못했습니다.", ephemeral=True)
+            return
+            
+        date_str = self.date_input.value.strip()
+        if date_str == "초기화":
+            last_checkin_val = None
+        else:
+            import re
+            if not re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
+                await interaction.response.send_message("❌ 날짜는 YYYY-MM-DD 격식에 맞게 입력해 주세요!", ephemeral=True)
+                return
+            last_checkin_val = date_str
+            
+        updates = {
+            "checkin_streak": streak,
+            "last_checkin": last_checkin_val
+        }
+        
+        success = await db.admin_update_user(user_id, updates)
+        if success:
+            from .embeds import build_game_admin_embed
+            embed = await build_game_admin_embed(client)
+            await interaction.message.edit(embed=embed)
+            await interaction.response.send_message(
+                f"✅ `{user_info['username']}`님의 출석 세부 내용이 갱신되었습니다옹!\n"
+                f"• **연속 출석일**: {user_info['checkin_streak']}일 -> {streak}일\n"
+                f"• **최근 출석일**: `{user_info['last_checkin']}` -> `{last_checkin_val}`",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message("❌ DB 업데이트 실패", ephemeral=True)
+
+
+class GameItemManageModal(ui.Modal, title="🎒 미니게임 유저 인벤토리 관리"):
+    def __init__(self, client: discord.Client):
+        super().__init__()
+        self.client = client
+        self.user_input = ui.TextInput(
+            label="대상 디스코드 유저 ID",
+            style=discord.TextStyle.short,
+            placeholder="숫자 고유 ID만 기입하세요.",
+            required=True
+        )
+        self.items_input = ui.TextInput(
+            label="가방 속 소유 아이템 입력 (쉼표 구분)",
+            style=discord.TextStyle.paragraph,
+            placeholder="예: 츄르, 참치캔, 슬롯머신티켓 (비우려면 비운 채로 등록)",
+            required=False,
+            max_length=1000
+        )
+        self.add_item(self.user_input)
+        self.add_item(self.items_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        client = self.client
+        db = getattr(client, "db", None)
+        if not db:
+            await interaction.response.send_message("❌ DB 연결 실패", ephemeral=True)
+            return
+            
+        try:
+            user_id = int(self.user_input.value.strip())
+        except ValueError:
+            await interaction.response.send_message("❌ 유저 고유 ID 형식이 잘못되었습니다옹!", ephemeral=True)
+            return
+            
+        user_info = await db.get_user(user_id)
+        if not user_info:
+            await interaction.response.send_message(f"❌ 해당 ID `{user_id}` 유저를 데이터베이스에서 찾을 수 없습니다옹!", ephemeral=True)
+            return
+            
+        items_raw = self.items_input.value.strip()
+        if items_raw:
+            items_list = [item.strip() for item in items_raw.split(",") if item.strip()]
+        else:
+            items_list = []
+            
+        import json
+        items_json = json.dumps(items_list, ensure_ascii=False)
+        
+        success = await db.admin_update_user(user_id, {"items": items_json})
+        if success:
+            items_display = ", ".join(items_list) if items_list else "없음"
+            await interaction.response.send_message(
+                f"✅ `{user_info['username']}`님의 인벤토리를 성공적으로 조정했습니다옹!\n"
+                f"• **보관함 아이템**: `{items_display}`",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message("❌ DB 업데이트 실패", ephemeral=True)
+

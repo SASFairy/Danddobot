@@ -112,6 +112,14 @@ class DanddobotClient(discord.Client):
         from src.bot_settings import BotSettingsController
         self.settings = BotSettingsController(self)
 
+        # Initialize Database Manager for mini-games
+        from src.db_manager import DatabaseManager
+        self.db = DatabaseManager()
+
+        # Register mini-game slash commands
+        from src.game_commands import setup_game_commands
+        setup_game_commands(self)
+
         logger.info(
             f"DanddobotClient initialized. Active channel: {self.active_channel_id}, "
             f"Registered channels: {list(self.registered_channels.keys())}, "
@@ -124,6 +132,14 @@ class DanddobotClient(discord.Client):
 
     async def on_ready(self):
         logger.info(f"Bot logged in as {self.user} (ID: {self.user.id})")
+        
+        # Sync CommandTree to register slash commands globally
+        logger.info("Syncing application command tree...")
+        try:
+            synced = await self.tree.sync()
+            logger.info(f"Command tree synced successfully: {len(synced)} command(s) registered.")
+        except Exception as e:
+            logger.error(f"Failed to sync command tree: {e}")
         
         # Fetch available models from backend on startup
         logger.info("Fetching available LLM models from backend...")
@@ -138,10 +154,11 @@ class DanddobotClient(discord.Client):
             logger.error(f"Failed to fetch available models on startup: {e}")
         
         # 1. Setup Persistent View and Send/Update Admin Dashboard
-        from src.admin import AdminDashboardView, build_dashboard_embed
+        from src.admin import AdminDashboardView, build_dashboard_embed, GameAdminDashboardView, build_game_admin_embed
         
-        # Register persistent view for button interaction handling
+        # Register persistent views for button interaction handling (reboot-safe)
         self.add_view(AdminDashboardView(self))
+        self.add_view(GameAdminDashboardView(self))
         
         if self.admin_channel_id:
             admin_channel = self.get_channel(self.admin_channel_id)
@@ -157,12 +174,19 @@ class DanddobotClient(discord.Client):
                 except Exception as history_err:
                     logger.warning(f"Could not fully clean history in admin channel: {history_err}")
                 
-                # Post the fresh dashboard embed
+                # Post the fresh dashboard embeds
                 try:
+                    # 1. Post standard configuration dashboard
                     embed = build_dashboard_embed(self)
                     view = AdminDashboardView(self)
                     await admin_channel.send(embed=embed, view=view)
                     logger.info("Admin dashboard posted successfully.")
+                    
+                    # 2. Post mini-game admin console panel
+                    game_embed = await build_game_admin_embed(self)
+                    game_view = GameAdminDashboardView(self)
+                    await admin_channel.send(embed=game_embed, view=game_view)
+                    logger.info("Mini-game admin console panel posted successfully.")
                 except Exception as send_err:
                     logger.error(f"Failed to send admin dashboard: {send_err}")
             else:
