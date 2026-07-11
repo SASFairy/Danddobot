@@ -350,6 +350,18 @@ class DanddobotClient(discord.Client):
         await super().on_interaction(interaction)
 
     async def on_message(self, message: discord.Message):
+        # 0. Fast instant command synchronizer for testing / guild level
+        if message.content == "!sync":
+            if message.guild and message.author.guild_permissions.administrator:
+                await message.channel.send("🔄 단또봇 글로벌 명령어들을 이 서버에 즉시 동기화(Guild Sync)합니다옹...")
+                try:
+                    self.tree.copy_global_to(guild=message.guild)
+                    synced = await self.tree.sync(guild=message.guild)
+                    await message.channel.send(f"✅ 동기화 완료! 이 서버에 **{len(synced)}개**의 슬래시 명령어가 즉시 강제 등록되었습니다옹!")
+                except Exception as e:
+                    await message.channel.send(f"❌ 동기화 실패: `{e}`")
+                return
+
         # Verify if we should handle this message
         if not self.should_respond(message):
             return
