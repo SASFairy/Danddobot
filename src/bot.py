@@ -353,11 +353,11 @@ class DanddobotClient(discord.Client):
         # 0. Fast instant command synchronizer for testing / guild level
         if message.content == "!sync":
             if message.guild and message.author.guild_permissions.administrator:
-                await message.channel.send("🔄 단또봇 글로벌 명령어들을 이 서버에 즉시 동기화(Guild Sync)합니다옹...")
+                await message.channel.send("🔄 단또봇 글로벌 명령어들을 이 서버에 즉시 동기화(Guild Sync)합니다냥...")
                 try:
                     self.tree.copy_global_to(guild=message.guild)
                     synced = await self.tree.sync(guild=message.guild)
-                    await message.channel.send(f"✅ 동기화 완료! 이 서버에 **{len(synced)}개**의 슬래시 명령어가 즉시 강제 등록되었습니다옹!")
+                    await message.channel.send(f"✅ 동기화 완료! 이 서버에 **{len(synced)}개**의 슬래시 명령어가 즉시 강제 등록되었습니다냥!")
                 except Exception as e:
                     await message.channel.send(f"❌ 동기화 실패: `{e}`")
                 return
@@ -365,11 +365,11 @@ class DanddobotClient(discord.Client):
         # 0.5 Clean up guild-specific command duplicates to leave only global ones
         if message.content == "!cleanup":
             if message.guild and message.author.guild_permissions.administrator:
-                await message.channel.send("🧹 이 서버의 로컬(Guild) 슬래시 명령어를 모두 삭제하여 중복을 제거합니다옹...")
+                await message.channel.send("🧹 이 서버의 로컬(Guild) 슬래시 명령어를 모두 삭제하여 중복을 제거합니다냥...")
                 try:
                     self.tree.clear_commands(guild=message.guild)
                     await self.tree.sync(guild=message.guild)
-                    await message.channel.send("✅ 로컬 명령어 삭제 성공! 이제 이 서버에는 글로벌 명령어(1개씩)만 깔끔하게 노출됩니다옹!")
+                    await message.channel.send("✅ 로컬 명령어 삭제 성공! 이제 이 서버에는 글로벌 명령어(1개씩)만 깔끔하게 노출됩니다냥!")
                 except Exception as e:
                     await message.channel.send(f"❌ 정돈 실패: `{e}`")
                 return
