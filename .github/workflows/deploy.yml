@@ -29,11 +29,15 @@ jobs:
             # Configure SSH to bypass Host Key Verification for this session
             export GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no"
             
+            # Clean and reset any local modifications on the server to prevent merge conflicts
+            echo "🧹 Cleaning and resetting local files on server..."
+            git reset --hard
+            
             # Fetch and dynamically checkout the branch that triggered this deployment
             echo "📥 Fetching latest code for branch: ${{ github.ref_name }}..."
             git fetch origin
             git checkout ${{ github.ref_name }}
-            git pull origin ${{ github.ref_name }}
+            git reset --hard origin/${{ github.ref_name }}
             
             # Rebuild and start Docker containers in background
             echo "🐳 Rebuilding and spinning up Docker containers..."
