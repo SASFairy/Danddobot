@@ -640,7 +640,7 @@ class RPSAcceptView(discord.ui.View):
             except Exception as e:
                 logger.warning(f"Failed to delete timed out RPS challenge message: {e}")
             
-    @discord.ui.button(label="🟢 대결 수락", style=discord.ButtonStyle.success, custom_id="rps_accept")
+    @discord.ui.button(label="🟢 대결 수락", style=discord.ButtonStyle.success)
     async def accept_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.opponent.id:
             await interaction.response.send_message(f"❌ 도전 대상자 파트너인 {self.opponent.display_name}님만 수락할 수 있습니다옹!", ephemeral=True)
@@ -718,7 +718,7 @@ class RPSAcceptView(discord.ui.View):
         # Start the 10-second game countdown in the background
         asyncio.create_task(view.start_countdown())
         
-    @discord.ui.button(label="🔴 대결 거절", style=discord.ButtonStyle.secondary, custom_id="rps_decline")
+    @discord.ui.button(label="🔴 대결 거절", style=discord.ButtonStyle.secondary)
     async def decline_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.opponent.id and interaction.user.id != self.challenger.id:
             await interaction.response.send_message("❌ 이 매치에 관여된 플레이어만 판돈 거절을 누를 수 있습니다옹!", ephemeral=True)
@@ -759,7 +759,7 @@ class RPSMainChoiceView(discord.ui.View):
         await self.session.process_outcome()
         self.stop()
         
-    @discord.ui.button(label="🅰️ A의 선택지 열기 (A 전용)", style=discord.ButtonStyle.primary, custom_id="rps_choice_a")
+    @discord.ui.button(label="🅰️ A의 선택지 열기 (A 전용)", style=discord.ButtonStyle.primary)
     async def choice_a_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.session.challenger.id:
             await interaction.response.send_message("❌ 이 버튼은 신청자(A) 전용입니다옹!", ephemeral=True)
@@ -775,7 +775,7 @@ class RPSMainChoiceView(discord.ui.View):
             ephemeral=True
         )
         
-    @discord.ui.button(label="🅱️ B의 선택지 열기 (B 전용)", style=discord.ButtonStyle.success, custom_id="rps_choice_b")
+    @discord.ui.button(label="🅱️ B의 선택지 열기 (B 전용)", style=discord.ButtonStyle.success)
     async def choice_b_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.session.opponent.id:
             await interaction.response.send_message("❌ 이 버튼은 수락자(B) 전용입니다옹!", ephemeral=True)
