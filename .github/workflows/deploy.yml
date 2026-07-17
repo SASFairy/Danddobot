@@ -39,6 +39,6 @@ jobs:
             
             # Rebuild and start Docker containers in background
             echo "🐳 Rebuilding and spinning up Docker containers..."
-            sudo docker compose up --build -d
+            docker compose up --build -d
             
             echo "✅ Deployment completed successfully!"
