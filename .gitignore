@@ -35,22 +35,25 @@ docker-compose.override.yml
 .vscode/
 .idea/
 
-# Local Persona custom edit
-# (Keep persona.txt version-controlled via git or ignore config/persona.txt if desired)
+# Server-managed configuration and state
 config/persona.txt
 config/channels.txt
 config/state.json
+config/state.json.tmp
 
-# RAG Knowledge documents (Keep example tracked, ignore real files)
+# RAG knowledge documents (keep examples tracked)
 config/knowledge/*
 !config/knowledge/
-!config/knowledge/bot_manual.txt.example
+!config/knowledge/*.example
+
+# Server-managed game data
+*.db
+*.db.bak
+config/game_database.json
+config/game_database.json.tmp
+config/game_database.db
+config/game_database.db.bak
+config/item_database.json
 
 # Local personal documentation
 README.local.md
-
-# Databases
-*.db
-game_database.db
-config/item_database.json
-
