@@ -308,11 +308,141 @@ class OpenAICompatibleClient(BaseOpenAICompatibleClient):
         )
 
 
-class CerebrasClient(BaseOpenAICompatibleClient):
-    """
-    Client for Cerebras Cloud Inference API (OpenAI Compatible with API Key authentication).
-    Supports multi-key rotation and failover on rate limits or failures.
-    """
+class RotatingKeyOpenAICompatibleClient(BaseOpenAICompatibleClient):
+    """OpenAI-compatible client with selective failover across multiple API keys."""
+
+    retryable_status_codes = {401, 403, 429}
+
+    def __init__(self, api_url: str, model: str, api_key: str, provider_name: str,
+                 timeout: Optional[float] = 300.0, temperature: Optional[float] = None,
+                 max_tokens: Optional[int] = None, repeat_penalty: Optional[float] = None,
+                 top_p: Optional[float] = None, top_k: Optional[int] = None):
+        super().__init__(
+            api_url=api_url,
+            model=model,
+            api_key=None,
+            provider_name=provider_name,
+            timeout=timeout,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            repeat_penalty=repeat_penalty,
+            top_p=top_p,
+            top_k=top_k
+        )
+        self.api_keys = [key.strip() for key in api_key.split(",") if key.strip()] if api_key else []
+        self.current_key_index = 0
+        logger.info(f"{provider_name}Client initialized with {len(self.api_keys)} registered API keys.")
+
+    def _get_headers(self) -> dict:
+        if not self.api_keys:
+            return {}
+        active_key = self.api_keys[self.current_key_index % len(self.api_keys)]
+        return {"Authorization": f"Bearer {active_key}"}
+
+    def _build_payload(self, prompt: str, system_prompt: Optional[str], history: Optional[list[dict]]) -> dict:
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        if history:
+            messages.extend(history)
+        messages.append({"role": "user", "content": prompt})
+
+        payload = {"model": self.model, "messages": messages, "stream": False}
+        if self.temperature is not None:
+            payload["temperature"] = self.temperature
+        if self.max_tokens is not None:
+            payload["max_tokens"] = self.max_tokens
+        if self.repeat_penalty is not None:
+            payload["frequency_penalty"] = max(0.0, min(2.0, self.repeat_penalty - 1.0))
+        if self.top_p is not None:
+            payload["top_p"] = self.top_p
+        return payload
+
+    def _should_rotate(self, error: Exception) -> bool:
+        if isinstance(error, httpx.HTTPStatusError):
+            status_code = error.response.status_code
+            return status_code in self.retryable_status_codes or status_code >= 500
+        return isinstance(error, (httpx.TimeoutException, httpx.TransportError))
+
+    def _format_error(self, error: Exception) -> RuntimeError:
+        if isinstance(error, httpx.HTTPStatusError):
+            return RuntimeError(
+                f"{self.provider_name} API 요청이 실패했습니다. "
+                f"(HTTP {error.response.status_code}: {error.response.text[:300]})"
+            )
+        if isinstance(error, httpx.TimeoutException):
+            return RuntimeError(f"{self.provider_name} API 응답 요청 시간이 초과되었습니다. ({error})")
+        if isinstance(error, httpx.HTTPError):
+            return RuntimeError(f"{self.provider_name} API 통신 중 오류가 발생했습니다. ({error})")
+        return RuntimeError(f"{self.provider_name} API 응답 처리 중 오류가 발생했습니다. ({error})")
+
+    def _log_rotation(self, key_index: int, attempt: int, error: Exception):
+        key = self.api_keys[key_index]
+        redacted = f"{key[:4]}...{key[-4:]}" if len(key) > 8 else "..."
+        logger.warning(
+            f"[{self.provider_name} Failover] API key index {key_index} ({redacted}) failed "
+            f"(Attempt {attempt}/{len(self.api_keys)}): {error}. Rotating to next key."
+        )
+
+    async def generate_response(self, prompt: str, system_prompt: Optional[str] = None,
+                                history: Optional[list[dict]] = None) -> str:
+        if not self.api_keys:
+            raise RuntimeError(f"등록된 {self.provider_name} API 키가 없습니다. .env 파일을 확인해 주세요.")
+
+        endpoint = f"{self.api_url}/v1/chat/completions"
+        payload = self._build_payload(prompt, system_prompt, history)
+        last_error = None
+
+        for attempt in range(1, len(self.api_keys) + 1):
+            key_index = self.current_key_index % len(self.api_keys)
+            try:
+                client = await self._get_client()
+                response = await client.post(
+                    endpoint,
+                    json=payload,
+                    headers=self._get_headers(),
+                    timeout=self.timeout
+                )
+                response.raise_for_status()
+                choices = response.json().get("choices", [])
+                if not choices:
+                    raise ValueError("API가 올바른 대답 형식을 반환하지 않았습니다.")
+                return choices[0].get("message", {}).get("content", "")
+            except Exception as error:
+                last_error = error
+                if not self._should_rotate(error):
+                    raise self._format_error(error) from error
+                self._log_rotation(key_index, attempt, error)
+                self.current_key_index = (key_index + 1) % len(self.api_keys)
+
+        logger.critical(f"[{self.provider_name} Failover] All registered API keys have failed.")
+        raise RuntimeError(
+            f"모든 등록된 {self.provider_name} API 키 호출에 실패했습니다. "
+            f"(최종 에러: {last_error})"
+        ) from last_error
+
+    async def get_available_models(self) -> list[str]:
+        if not self.api_keys:
+            return []
+
+        endpoint = f"{self.api_url}/v1/models"
+        for attempt in range(1, len(self.api_keys) + 1):
+            key_index = self.current_key_index % len(self.api_keys)
+            try:
+                client = await self._get_client()
+                response = await client.get(endpoint, headers=self._get_headers(), timeout=10.0)
+                response.raise_for_status()
+                return [model["id"] for model in response.json().get("data", []) if model.get("id")]
+            except Exception as error:
+                if not self._should_rotate(error):
+                    logger.error(f"Failed to fetch models from {self.provider_name}: {error}")
+                    return []
+                self._log_rotation(key_index, attempt, error)
+                self.current_key_index = (key_index + 1) % len(self.api_keys)
+        return []
+
+
+class CerebrasClient(RotatingKeyOpenAICompatibleClient):
     def __init__(self, api_url: str, model: str, api_key: str, timeout: Optional[float] = 300.0,
                  temperature: Optional[float] = None, max_tokens: Optional[int] = None,
                  repeat_penalty: Optional[float] = None, top_p: Optional[float] = None,
@@ -329,63 +459,25 @@ class CerebrasClient(BaseOpenAICompatibleClient):
             top_p=top_p,
             top_k=top_k
         )
-        self.api_keys = [k.strip() for k in api_key.split(",") if k.strip()] if api_key else []
-        self.current_key_index = 0
-        logger.info(f"CerebrasClient initialized with {len(self.api_keys)} registered API keys.")
 
-    def _get_headers(self) -> dict:
-        headers = {}
-        if self.api_keys:
-            # Safely clamp index
-            idx = self.current_key_index % len(self.api_keys)
-            active_key = self.api_keys[idx]
-            redacted = active_key[:4] + "..." + active_key[-4:] if len(active_key) > 8 else "..."
-            logger.debug(f"Using Cerebras API key index {idx}: {redacted}")
-            headers["Authorization"] = f"Bearer {active_key}"
-        return headers
 
-    async def generate_response(self, prompt: str, system_prompt: Optional[str] = None, history: Optional[list[dict]] = None) -> str:
-        if not self.api_keys:
-            raise RuntimeError("등록된 Cerebras API 키가 없습니다. .env 파일을 확인해 주세요.")
-
-        attempts = len(self.api_keys)
-        last_exception = None
-
-        for attempt in range(attempts):
-            idx = self.current_key_index % len(self.api_keys)
-            self.current_key_index = idx  # Keep it clean
-            
-            try:
-                # Call the base class generate_response, which will use our overridden _get_headers()
-                return await super().generate_response(prompt, system_prompt, history)
-            except Exception as e:
-                last_exception = e
-                redacted_key = self.api_keys[idx][:4] + "..." + self.api_keys[idx][-4:] if len(self.api_keys[idx]) > 8 else "..."
-                logger.warning(
-                    f"[Cerebras Failover] API key index {idx} ({redacted_key}) failed (Attempt {attempt + 1}/{attempts}). "
-                    f"Error: {e}. Rotating to next key..."
-                )
-                # Rotate key index
-                self.current_key_index = (self.current_key_index + 1) % len(self.api_keys)
-
-        logger.critical("[Cerebras Failover] All registered Cerebras API keys have failed.")
-        raise RuntimeError(f"모든 등록된 Cerebras API 키 호출에 실패했습니다. (최종 에러: {last_exception})") from last_exception
-
-    async def get_available_models(self) -> list[str]:
-        if not self.api_keys:
-            return []
-
-        attempts = len(self.api_keys)
-        for attempt in range(attempts):
-            idx = self.current_key_index % len(self.api_keys)
-            self.current_key_index = idx
-            
-            try:
-                return await super().get_available_models()
-            except Exception as e:
-                logger.warning(f"[Cerebras Failover] Failed to fetch models with key index {idx}: {e}. Rotating...")
-                self.current_key_index = (self.current_key_index + 1) % len(self.api_keys)
-        return []
+class GroqClient(RotatingKeyOpenAICompatibleClient):
+    def __init__(self, api_url: str, model: str, api_key: str, timeout: Optional[float] = 300.0,
+                 temperature: Optional[float] = None, max_tokens: Optional[int] = None,
+                 repeat_penalty: Optional[float] = None, top_p: Optional[float] = None,
+                 top_k: Optional[int] = None):
+        super().__init__(
+            api_url=api_url or "https://api.groq.com/openai",
+            model=model,
+            api_key=api_key,
+            provider_name="Groq",
+            timeout=timeout,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            repeat_penalty=repeat_penalty,
+            top_p=top_p,
+            top_k=top_k
+        )
 
 
 class LLMClientFactory:
@@ -402,6 +494,8 @@ class LLMClientFactory:
             return OllamaClient(api_url, model, timeout=timeout, temperature=temperature, max_tokens=max_tokens, repeat_penalty=repeat_penalty, top_p=top_p, top_k=top_k)
         elif prov == "CEREBRAS":
             return CerebrasClient(api_url, model, api_key=api_key, timeout=timeout, temperature=temperature, max_tokens=max_tokens, repeat_penalty=repeat_penalty, top_p=top_p, top_k=top_k)
+        elif prov == "GROQ":
+            return GroqClient(api_url, model, api_key=api_key, timeout=timeout, temperature=temperature, max_tokens=max_tokens, repeat_penalty=repeat_penalty, top_p=top_p, top_k=top_k)
         elif prov == "OPENAI_COMPATIBLE":
             return OpenAICompatibleClient(api_url, model, "OpenAICompatible", timeout=timeout, temperature=temperature, max_tokens=max_tokens, repeat_penalty=repeat_penalty, top_p=top_p, top_k=top_k)
         elif prov == "LLAMA_CPP":

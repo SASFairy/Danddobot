@@ -19,7 +19,7 @@ class AppConfig:
         self.discord_token = os.getenv("DISCORD_TOKEN")
 
         # 3. LLM Configuration
-        self.llm_provider = os.getenv("LLM_PROVIDER", "OLLAMA")
+        self.llm_provider = os.getenv("LLM_PROVIDER", "OLLAMA").upper()
         self.llm_api_url = os.getenv("LLM_API_URL", "http://localhost:11434")
         self.llm_model = os.getenv("LLM_MODEL", "llama3")
         self.persona_file_path = os.getenv("PERSONA_FILE_PATH", "config/persona.txt")
@@ -39,21 +39,24 @@ class AppConfig:
 
         # Read LLM Engine-specific API URLs from .env
         self.provider_urls: Dict[str, str] = {}
-        for prov in ["OLLAMA", "OPENAI_COMPATIBLE", "LLAMA_CPP", "VLLM", "LM_STUDIO", "CEREBRAS"]:
+        for prov in ["OLLAMA", "OPENAI_COMPATIBLE", "LLAMA_CPP", "VLLM", "LM_STUDIO", "CEREBRAS", "GROQ"]:
             url = os.getenv(f"{prov}_API_URL")
             if url and url.strip():
                 self.provider_urls[prov] = url.strip()
 
-        # Add Cerebras default endpoint if not explicitly configured in *_API_URL
-        if "CEREBRAS" not in self.provider_urls:
-            self.provider_urls["CEREBRAS"] = os.getenv("CEREBRAS_API_URL", "https://api.cerebras.ai").strip()
+        # Add cloud provider defaults if not explicitly configured in *_API_URL
+        self.provider_urls.setdefault("CEREBRAS", "https://api.cerebras.ai")
+        self.provider_urls.setdefault("GROQ", "https://api.groq.com/openai")
 
-        # Ensure current provider and API URL is represented in provider_urls
-        if self.llm_provider not in self.provider_urls:
+        # Prefer the active provider-specific URL over the generic fallback.
+        if self.llm_provider in self.provider_urls:
+            self.llm_api_url = self.provider_urls[self.llm_provider]
+        else:
             self.provider_urls[self.llm_provider] = self.llm_api_url
 
-        # Load Cerebras API key
+        # Load cloud provider API keys
         self.cerebras_api_key = os.getenv("CEREBRAS_API_KEY", "").strip()
+        self.groq_api_key = os.getenv("GROQ_API_KEY", "").strip()
 
         # Override LLM Model from State Manager if present
         persisted_model = state_manager.get_value("llm_model")

@@ -14,7 +14,7 @@ def build_dashboard_embed(client: discord.Client, status_msg: str = "정상 작�
     llm_info = "미설정"
     if hasattr(client, "llm_client") and client.llm_client:
         provider = getattr(client.llm_client, "provider_name", client.llm_client.__class__.__name__.replace("Client", ""))
-        if provider == "Cerebras" and hasattr(client.llm_client, "api_keys"):
+        if hasattr(client.llm_client, "api_keys"):
             provider = f"{provider} (🔑 API Keys: {len(client.llm_client.api_keys)}개)"
         model = getattr(client.llm_client, "model", "unknown")
         timeout_val = getattr(client.llm_client, "timeout", None)

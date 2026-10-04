@@ -34,9 +34,16 @@ def main():
     logger.info(f"Persona Prompt Path: {config.persona_file_path}")
     logger.info(f"Channels Config Path: {config.channels_file_path}")
 
-    # Check Cerebras API key warning
-    if config.llm_provider.upper() == "CEREBRAS" and not config.cerebras_api_key:
-        logger.warning("CEREBRAS_API_KEY is not configured, but CEREBRAS is selected as the LLM provider. Generation requests will likely fail.")
+    provider_api_keys = {
+        "CEREBRAS": config.cerebras_api_key,
+        "GROQ": config.groq_api_key,
+    }
+    active_api_key = provider_api_keys.get(config.llm_provider.upper())
+    if config.llm_provider.upper() in provider_api_keys and not active_api_key:
+        logger.warning(
+            f"{config.llm_provider.upper()}_API_KEY is not configured, but "
+            f"{config.llm_provider.upper()} is selected as the LLM provider."
+        )
 
     # 5. Initialize LLM Adapter Client
     llm_client = LLMClientFactory.get_client(
@@ -44,7 +51,7 @@ def main():
         api_url=config.llm_api_url,
         model=config.llm_model,
         timeout=config.llm_timeout,
-        api_key=config.cerebras_api_key if config.llm_provider.upper() == "CEREBRAS" else None,
+        api_key=active_api_key,
         temperature=config.llm_temperature,
         max_tokens=config.llm_max_tokens,
         repeat_penalty=config.llm_repeat_penalty,
@@ -61,7 +68,7 @@ def main():
         log_channel_id=config.log_channel_id,
         state_manager=state_manager,
         provider_urls=config.provider_urls,
-        cerebras_api_key=config.cerebras_api_key,
+        provider_api_keys=provider_api_keys,
         rag_enabled=config.rag_enabled,
         rag_knowledge_dir=config.rag_knowledge_dir,
         rag_top_k=config.rag_top_k,

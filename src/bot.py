@@ -48,9 +48,9 @@ class DanddobotClient(discord.Client):
     calling the local LLM with a live persona system prompt, and returning responses.
     """
     def __init__(self, channels_file_path: str, llm_client: BaseLLMClient, persona_file_path: str,
-                 state_manager: StateManager, admin_channel_id: Optional[int] = None, 
+                 state_manager: StateManager, admin_channel_id: Optional[int] = None,
                  log_channel_id: Optional[int] = None, provider_urls: Optional[Dict[str, str]] = None,
-                 cerebras_api_key: Optional[str] = None,
+                 provider_api_keys: Optional[Dict[str, str]] = None,
                  rag_enabled: bool = False,
                  rag_knowledge_dir: str = "config/knowledge",
                  rag_top_k: int = 3,
@@ -70,7 +70,7 @@ class DanddobotClient(discord.Client):
         self.admin_channel_id = admin_channel_id
         self.log_channel_id = log_channel_id
         self.provider_urls = provider_urls if provider_urls is not None else {}
-        self.cerebras_api_key = cerebras_api_key
+        self.provider_api_keys = provider_api_keys if provider_api_keys is not None else {}
 
         # Centralized configurations cache
         self.state_manager = state_manager

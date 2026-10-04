@@ -10,8 +10,8 @@
 Danddobot은 단순한 응답 봇을 넘어, 운영 편의성과 아키텍처 완성도를 높이기 위해 다음과 같은 설계와 고급 관리 기능을 도입했습니다:
 
 ### 1. 아키텍처 및 통신 최적화
-* **느슨한 결합 (어댑터 패턴):** 챗봇 메인 로직은 LLM 규격에 종속되지 않습니다. `BaseLLMClient` 추상 클래스를 기반으로 Ollama, OpenAI 호환 API, llama.cpp, vLLM, LM Studio, Cerebras 등 다양한 엔진을 지원하며, 실시간 모델 변경이 가능합니다.
-* **Cerebras 다중 API 키 자동 순환 및 Failover:** Cerebras 백엔드 사용 시 여러 개의 API 키를 등록하여 무료 할당량 소진 또는 요청 제한(Rate Limit) 발생 시 패스워드나 재부팅 없이 유효한 키로 자동 순환(Rotation) 및 예외 복구(Failover) 처리가 이루어집니다.
+* **느슨한 결합 (어댑터 패턴):** 챗봇 메인 로직은 LLM 규격에 종속되지 않습니다. `BaseLLMClient` 추상 클래스를 기반으로 Ollama, OpenAI 호환 API, llama.cpp, vLLM, LM Studio, Cerebras, Groq 등 다양한 엔진을 지원하며, 실시간 모델 변경이 가능합니다.
+* **클라우드 API 다중 키 자동 순환 및 Failover:** Cerebras와 Groq 백엔드는 여러 API 키를 콤마로 구분해 등록할 수 있습니다. 인증·권한 오류, 요청 제한, 일시적인 서버 또는 네트워크 장애가 발생하면 다음 키로 자동 전환하며, 잘못된 요청과 같이 키 변경으로 해결되지 않는 오류는 즉시 반환합니다.
 * **지속성 연결 풀링 (Connection Pooling):** `httpx.AsyncClient`를 이용한 지속성 연결 풀링을 적용하여 요청마다 소켓을 새로 생성하는 리소스 낭비(Socket Exhaustion)를 방지하고 대기 시간을 단축시켰습니다.
 * **순차 동시성 처리 (FIFO Concurrency Lock):** 여러 사용자가 거의 동시에 질문을 입력하더라도, 컨텍스트 순서가 뒤섞이지 않고 요청 순서대로 안전하게 응답을 제어하는 `asyncio.Lock` 메커니즘을 내장하고 있습니다.
 
@@ -71,11 +71,13 @@ danddobot-antigravity/
 | 변수명 | 설명 | 예시값 |
 | :--- | :--- | :--- |
 | `DISCORD_TOKEN` | 디스코드 봇 계정의 토큰 키 | `your_discord_bot_token` |
-| `LLM_PROVIDER` | LLM 백엔드 제공자 (`OLLAMA`, `OPENAI_COMPATIBLE`, `CEREBRAS` 등) | `OLLAMA` |
-| `LLM_API_URL` | 동일 도커 네트워크 상의 LLM 컨테이너 또는 호스트 주소 | `http://local-llm:11434` |
+| `LLM_PROVIDER` | LLM 백엔드 제공자 (`OLLAMA`, `OPENAI_COMPATIBLE`, `CEREBRAS`, `GROQ` 등) | `OLLAMA` |
+| `LLM_API_URL` | 기본 LLM 컨테이너 또는 API 주소 | `http://local-llm:11434` |
 | `LLM_MODEL` | 기본 구동에 사용할 LLM 모델 식별자 | `llama3` |
 | `LLM_TIMEOUT` | LLM 응답 대기 초과 제한 시간 (0 이하는 무제한) | `300.0` |
-| `CEREBRAS_API_KEY` | Cerebras API 키 (복수 키 설정 시 콤마 단위로 기입) | `key1, key2, key3` |
+| `CEREBRAS_API_KEY` | Cerebras API 키. 복수 키는 콤마로 구분 | `key1,key2,key3` |
+| `GROQ_API_URL` | Groq OpenAI 호환 API 기준 주소 | `https://api.groq.com/openai` |
+| `GROQ_API_KEY` | Groq API 키. 복수 키는 콤마로 구분 | `key1,key2,key3` |
 | `PERSONA_FILE_PATH` | 페르소나 시스템 프롬프트가 정의된 파일 경로 | `config/persona.txt` |
 | `CHANNELS_FILE_PATH` | 등록 가능한 채널 ID 목록 텍스트 파일 경로 | `config/channels.txt` |
 | `ADMIN_CHANNEL_ID` | 관리자 대시보드가 상주하고 렌더링될 전용 채널 ID (선택) | `123456789012345678` |

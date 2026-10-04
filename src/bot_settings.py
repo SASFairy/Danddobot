@@ -130,7 +130,7 @@ class BotSettingsController:
             api_url=new_api_url,
             model=current_model,
             timeout=current_timeout,
-            api_key=self.client.cerebras_api_key if new_provider_upper == "CEREBRAS" else None,
+            api_key=self.client.provider_api_keys.get(new_provider_upper),
             temperature=getattr(old_client, "temperature", None),
             max_tokens=getattr(old_client, "max_tokens", None),
             repeat_penalty=getattr(old_client, "repeat_penalty", None),
